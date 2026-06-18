@@ -230,6 +230,68 @@ class IngestionService:
             items = [items]
         return self.ingest_faq_items(db, brand, source_name, items)
 
+    def ingest_legal_policies(
+        self,
+        db: Session,
+        brand: models.Brand,
+        source_name: str,
+        policies: list[dict],
+    ) -> models.KnowledgeSource:
+        source = models.KnowledgeSource(
+            brand_id=brand.id,
+            name=source_name,
+            source_type="legal",
+        )
+        db.add(source)
+        db.commit()
+        db.refresh(source)
+
+        chunks: list[str] = []
+        custom_ids: list[str] = []
+        extra_meta: list[dict] = []
+
+        for policy in policies:
+            policy_name = policy.get("policy", "").strip()
+            if not policy_name:
+                continue
+            policy_slug = policy_name.lower().replace(" ", "-").replace("–", "-")
+            for section in policy.get("sections", []):
+                title = section.get("title", "").strip()
+                content = section.get("content", "").strip()
+                if not content:
+                    continue
+                section_slug = title.lower().replace(" ", "-").replace("–", "-")
+                cid = f"legal-{policy_slug}-{section_slug}"
+
+                chunks.append(f"## {policy_name} \u2014 {title}\n{content}")
+                custom_ids.append(cid)
+                extra_meta.append({
+                    "doc_id": cid,
+                    "policy_name": policy_name,
+                    "section_title": title,
+                })
+
+        count = self._upsert_chunks(
+            db, brand, source, chunks,
+            extra_metadata={"source_type": "legal"},
+            custom_ids=custom_ids,
+        )
+
+        chunk_rows = (
+            db.query(models.Chunk)
+            .filter_by(source_id=source.id)
+            .order_by(models.Chunk.id)
+            .all()
+        )
+        for row, meta in zip(chunk_rows, extra_meta):
+            existing = json.loads(row.metadata_json)
+            existing.update(meta)
+            row.metadata_json = json.dumps(existing)
+        db.commit()
+
+        source.chunk_count = count
+        db.commit()
+        return source
 
     def ingest_structured_kb(
         self,

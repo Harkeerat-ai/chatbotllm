@@ -54,6 +54,15 @@ def seed_knowledge(db: Session) -> None:
                     logger.info("  [page] %s → %d pages", fpath.name, src.chunk_count)
                     continue
 
+                # Legal policies are always seeded (idempotent via stable IDs)
+                if suffix == ".json" and "legal" in name.lower():
+                    policies = json.loads(fpath.read_text())
+                    if isinstance(policies, dict):
+                        policies = [policies]
+                    src = ingestion_service.ingest_legal_policies(db, brand, name, policies)
+                    logger.info("  [legal] %s → %d chunks", fpath.name, src.chunk_count)
+                    continue
+
                 # Skip non-page files if brand already seeded
                 if existing:
                     continue
