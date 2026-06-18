@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Databases
+*.db
+*.sqlite3
+
+# Vector stores
+vector_db/
+vector_db_test/
+
+# Environment / secrets
+.env
+
+# Logs / output
+*.log
+benchmark_results.json
+
+# Test artifacts
+.pytest_cache/
+.benchmarks/
+tmp_tracking_test.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

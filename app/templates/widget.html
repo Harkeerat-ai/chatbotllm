@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>{brand} Assistant</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+
+  *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+
+  :root {{
+    --bg: #0d0d0d;
+    --surface: #161616;
+    --border: #2a2a2a;
+    --accent: #f0a500;
+    --text: #e8e8e8;
+    --text-dim: #888;
+    --user-bg: #1e1e1e;
+    --bot-bg: #111;
+    --radius: 8px;
+    --font-mono: 'IBM Plex Mono', monospace;
+    --font-sans: 'IBM Plex Sans', sans-serif;
+  }}
+
+  body {{
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }}
+
+  .chat-container {{
+    width: min(480px, 96vw);
+    height: min(700px, 94dvh);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 24px 64px rgba(0,0,0,.6);
+  }}
+
+  .chat-header {{
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--bg);
+  }}
+
+  .brand-dot {{
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse 2s infinite;
+  }}
+
+  @keyframes pulse {{
+    0%, 100% {{ opacity: 1; }}
+    50% {{ opacity: .4; }}
+  }}
+
+  .brand-name {{
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: .85rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }}
+
+  .brand-sub {{
+    font-size: .75rem;
+    color: var(--text-dim);
+    margin-left: auto;
+    font-family: var(--font-mono);
+  }}
+
+  .messages {{
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    scroll-behavior: smooth;
+  }}
+
+  .messages::-webkit-scrollbar {{ width: 4px; }}
+  .messages::-webkit-scrollbar-track {{ background: transparent; }}
+  .messages::-webkit-scrollbar-thumb {{ background: var(--border); border-radius: 4px; }}
+
+  .msg {{
+    max-width: 85%;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    font-size: .875rem;
+    line-height: 1.55;
+    animation: fadeUp .2s ease;
+  }}
+
+  @keyframes fadeUp {{
+    from {{ opacity: 0; transform: translateY(6px); }}
+    to   {{ opacity: 1; transform: translateY(0); }}
+  }}
+
+  .msg.user {{
+    background: var(--user-bg);
+    border: 1px solid var(--border);
+    align-self: flex-end;
+  }}
+
+  .msg.bot {{
+    background: var(--bot-bg);
+    border: 1px solid var(--border);
+    align-self: flex-start;
+    white-space: pre-wrap;
+  }}
+
+  .msg.bot .sources {{
+    margin-top: 8px;
+    font-size: .72rem;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    border-top: 1px solid var(--border);
+    padding-top: 6px;
+  }}
+
+    msg.bot .product-links {{
+    margin-top: 8px;
+    border-top: 1px solid var(--border);
+    padding-top: 6px;
+  }}
+
+  .msg.bot .product-links a {{
+    color: var(--accent);
+    text-decoration: underline;
+    display: block;
+    margin-top: 4px;
+    font-size: .82rem;
+  }}
+
+  .typing {{
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    padding: 10px 14px;
+    background: var(--bot-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    align-self: flex-start;
+    width: fit-content;
+  }}
+
+  .typing span {{
+    width: 6px; height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: bounce .8s infinite;
+  }}
+  .typing span:nth-child(2) {{ animation-delay: .15s; }}
+  .typing span:nth-child(3) {{ animation-delay: .3s; }}
+
+  @keyframes bounce {{
+    0%, 100% {{ transform: translateY(0); opacity: .4; }}
+    50%       {{ transform: translateY(-4px); opacity: 1; }}
+  }}
+
+  .chat-input {{
+    padding: 14px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 10px;
+    background: var(--bg);
+  }}
+
+  .chat-input input {{
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: .875rem;
+    outline: none;
+    transition: border-color .2s;
+  }}
+
+  .chat-input input:focus {{
+    border-color: var(--accent);
+  }}
+
+  .chat-input input::placeholder {{ color: var(--text-dim); }}
+
+  .send-btn {{
+    background: var(--accent);
+    border: none;
+    color: #000;
+    padding: 10px 16px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: .78rem;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    transition: opacity .15s;
+  }}
+
+  .send-btn:hover {{ opacity: .85; }}
+  .send-btn:disabled {{ opacity: .4; cursor: not-allowed; }}
+</style>
+</head>
+<body>
+<div class="chat-container">
+  <div class="chat-header">
+    <div class="brand-dot"></div>
+    <span class="brand-name">{brand}</span>
+    <span class="brand-sub">powered by RAG</span>
+  </div>
+  <div class="messages" id="messages">
+    <div class="msg bot">Hello! I'm the {brand} assistant. Ask me anything.</div>
+  </div>
+  <div class="chat-input">
+    <input type="text" id="input" placeholder="Ask a question…" autocomplete="off"/>
+    <button class="send-btn" id="send">Send</button>
+  </div>
+</div>
+
+<script>
+const BRAND = "{brand}";
+const SESSION_ID = localStorage.getItem("rag_session") || crypto.randomUUID();
+localStorage.setItem("rag_session", SESSION_ID);
+
+const msgs = document.getElementById("messages");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+
+function addMsg(role, text, sources, urls) {{
+  const div = document.createElement("div");
+    div.className = `msg ${{role}}`;
+  div.textContent = text;
+  if (sources && sources.length) {{
+    const s = document.createElement("div");
+    s.className = "sources";
+    s.textContent = "Sources: " + sources.join(", ");
+    div.appendChild(s);
+  }}
+  if (urls && urls.length) {{
+    const l = document.createElement("div");
+    l.className = "product-links";
+    l.innerHTML = urls.map(u =>
+      `<a href="${{u.url}}" target="_blank">${{u.title}}</a>`
+    ).join("");
+    div.appendChild(l);
+  }}
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return div;
+}}
+
+function showTyping() {{
+  const div = document.createElement("div");
+  div.className = "typing";
+  div.id = "typing";
+  div.innerHTML = "<span></span><span></span><span></span>";
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}}
+
+function removeTyping() {{
+  const t = document.getElementById("typing");
+  if (t) t.remove();
+}}
+
+async function send() {{
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  sendBtn.disabled = true;
+
+  addMsg("user", text);
+  showTyping();
+
+    try {{
+    const res = await fetch(`/api/${{BRAND}}/chat`, {{
+      method: "POST",
+      headers: {{ "Content-Type": "application/json" }},
+      body: JSON.stringify({{ message: text, session_id: SESSION_ID, allow_unverified_tracking: true }})
+    }});
+    const data = await res.json();
+    // Debug: log the raw response so developers can inspect API shape/status
+    console.log('Chat response:', data);
+    removeTyping();
+    addMsg("bot", data.answer || data.detail || "No answer.", data.sources, data.urls);
+  }} catch(e) {{
+    console.error('Chat request failed', e);
+    removeTyping();
+    addMsg("bot", "Network error — please try again.");
+  }} finally {{
+    sendBtn.disabled = false;
+    input.focus();
+  }}
+}}
+
+sendBtn.addEventListener("click", send);
+input.addEventListener("keydown", e => {{ if (e.key === "Enter" && !e.shiftKey) send(); }});
+</script>
+</body>
+</html>
