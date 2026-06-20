@@ -1,45 +1,61 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<title>Shipment {shipment_id}</title>
-<style>
-  *{{box-sizing:border-box}} body{{font-family:Arial,sans-serif;background:#0a0a0a;color:#e0e0e0;margin:0}}
-  header{{display:flex;justify-content:space-between;align-items:center;padding:16px 28px;background:#141414;border-bottom:1px solid #222}}
-  main{{padding:28px;max-width:1100px;margin:0 auto}} a{{color:#f0a500;text-decoration:none}} h1{{font-size:1rem;color:#f0a500}}
-  .grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:24px 0}} .box{{border:1px solid #222;background:#141414;border-radius:8px;padding:14px}}
-  .label{{font-size:.72rem;color:#777;text-transform:uppercase;margin-bottom:6px}} .value{{font-size:1rem}} table{{width:100%;border-collapse:collapse;font-size:.88rem;margin-top:14px}} th,td{{padding:10px;border-bottom:1px solid #222;text-align:left;vertical-align:top}} th{{color:#777;text-transform:uppercase;font-size:.72rem}}
-  form{{display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 8px 10px 0}} input,select,button{{background:#0f0f0f;border:1px solid #2a2a2a;color:#e0e0e0;border-radius:6px;padding:9px 11px}} button{{cursor:pointer;background:#f0a500;color:#000;font-weight:600}} textarea{{background:#0f0f0f;border:1px solid #2a2a2a;color:#e0e0e0;border-radius:6px;padding:9px;width:260px;height:40px}}
-</style>
-</head>
-<body>
-<header><h1>Shipment Detail</h1><div><a href="/admin/tracking">Back to tracking</a></div></header>
-<main>
-  <div class="grid">
-    <div class="box"><div class="label">Brand</div><div class="value">{brand_slug}</div></div>
-    <div class="box"><div class="label">Order ID</div><div class="value">{order_id}</div></div>
-    <div class="box"><div class="label">Tracking Number</div><div class="value">{tracking_number}</div></div>
-    <div class="box"><div class="label">Status</div><div class="value">{status_label}</div></div>
-    <div class="box"><div class="label">Current Hub</div><div class="value">{current_hub}</div></div>
-    <div class="box"><div class="label">Previous Hub</div><div class="value">{previous_hub}</div></div>
-    <div class="box"><div class="label">Next Hub</div><div class="value">{next_hub}</div></div>
-    <div class="box"><div class="label">ETA</div><div class="value">{eta}</div></div>
-  </div>
+{% extends "admin_base.html" %}
+{% block title %}Shipment {{ shipment_id }}{% endblock %}
+{% block extra_style %}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:24px 0}
+.box{border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:14px}
+.label{font-size:.72rem;color:var(--dim);text-transform:uppercase;margin-bottom:6px}
+.value{font-size:1rem}
+table{width:100%;border-collapse:collapse;font-size:.88rem;margin-top:14px}
+th,td{padding:10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+th{color:var(--dim);text-transform:uppercase;font-size:.72rem}
+form{display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 8px 10px 0}
+input,select,button{background:#0f0f0f;border:1px solid #2a2a2a;color:#e0e0e0;border-radius:6px;padding:9px 11px}
+button{cursor:pointer;background:var(--accent);color:#000;font-weight:600}
+textarea{background:#0f0f0f;border:1px solid #2a2a2a;color:#e0e0e0;border-radius:6px;padding:9px;width:260px;height:40px}
+h2{font-family:var(--mono);font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-top:30px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:8px}
+{% endblock %}
+{% block content %}
+<div class="grid">
+  <div class="box"><div class="label">Brand</div><div class="value">{{ brand_slug }}</div></div>
+  <div class="box"><div class="label">Order ID</div><div class="value">{{ order_id }}</div></div>
+  <div class="box"><div class="label">Tracking Number</div><div class="value">{{ tracking_number }}</div></div>
+  <div class="box"><div class="label">Status</div><div class="value">{{ status_label }}</div></div>
+  <div class="box"><div class="label">Current Hub</div><div class="value">{{ current_hub }}</div></div>
+  <div class="box"><div class="label">Previous Hub</div><div class="value">{{ previous_hub }}</div></div>
+  <div class="box"><div class="label">Next Hub</div><div class="value">{{ next_hub }}</div></div>
+  <div class="box"><div class="label">ETA</div><div class="value">{{ eta }}</div></div>
+</div>
 
-  <form method="POST" action="/admin/tracking/{shipment_id}/refresh"><button type="submit">Refresh</button></form>
-  <form method="POST" action="/admin/tracking/{shipment_id}/recalculate-eta"><button type="submit">Recalculate ETA</button></form>
-  <form method="POST" action="/admin/tracking/{shipment_id}/override">
-    <select name="status">{status_options}</select>
-    <input type="date" name="eta" value="{eta_value_input}"/>
-    <textarea name="notes" placeholder="Override note"></textarea>
-    <button type="submit">Apply Override</button>
-  </form>
+<form method="POST" action="/admin/tracking/{{ shipment_id }}/refresh"><button type="submit">Refresh</button></form>
+<form method="POST" action="/admin/tracking/{{ shipment_id }}/recalculate-eta"><button type="submit">Recalculate ETA</button></form>
+<form method="POST" action="/admin/tracking/{{ shipment_id }}/override">
+  <select name="status">
+    {% for st in statuses %}
+    <option value="{{ st.value }}"{% if st.selected %} selected{% endif %}>{{ st.label }}</option>
+    {% endfor %}
+  </select>
+  <input type="date" name="eta" value="{{ eta_value_input }}"/>
+  <textarea name="notes" placeholder="Override note"></textarea>
+  <button type="submit">Apply Override</button>
+</form>
 
-  <h2>Timeline</h2>
-  <table>
-    <thead><tr><th>Timestamp</th><th>Status</th><th>Hub</th><th>Location</th><th>Notes</th></tr></thead>
-    <tbody>{event_rows}</tbody>
-  </table>
-</main>
-</body>
-</html>
+<h2>Timeline</h2>
+<table>
+  <thead><tr><th>Timestamp</th><th>Status</th><th>Hub</th><th>Location</th><th>Notes</th></tr></thead>
+  <tbody>
+  {% if events %}
+  {% for ev in events %}
+    <tr>
+      <td>{{ ev.event_timestamp }}</td>
+      <td>{{ ev.status_label }}</td>
+      <td>{{ ev.hub_name }}</td>
+      <td>{{ ev.location_text }}</td>
+      <td>{{ ev.notes }}</td>
+    </tr>
+  {% endfor %}
+  {% else %}
+    <tr><td colspan="5" style="color:var(--dim);text-align:center;padding:24px">No events yet</td></tr>
+  {% endif %}
+  </tbody>
+</table>
+{% endblock %}

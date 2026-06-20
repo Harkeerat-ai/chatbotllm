@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     chunk_size: int = 512
     chunk_overlap: int = 64
     default_top_k: int = 10
+    clarification_threshold: float = 0.25
+    default_language: str = "en"
 
     # Crawler limits
     crawler_max_pages: int = 50

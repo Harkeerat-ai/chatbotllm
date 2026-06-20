@@ -1,45 +1,71 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<title>Tracking Admin</title>
-<style>
-  *{{box-sizing:border-box}} body{{font-family:Arial,sans-serif;background:#0a0a0a;color:#e0e0e0;margin:0}}
-  header{{display:flex;justify-content:space-between;align-items:center;padding:16px 28px;background:#141414;border-bottom:1px solid #222}}
-  main{{padding:28px;max-width:1240px;margin:0 auto}} a{{color:#f0a500;text-decoration:none}} a:hover{{text-decoration:underline}}
-  h1{{font-size:1rem;color:#f0a500;text-transform:uppercase;letter-spacing:.08em}} h2{{font-size:.9rem;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-top:30px}}
-  .stats{{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin:24px 0}}
-  .stat{{border:1px solid #222;background:#141414;border-radius:8px;padding:16px}} .label{{font-size:.72rem;color:#777;text-transform:uppercase}} .value{{font-size:1.7rem;color:#f0a500;margin-top:6px}}
-  form.search{{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:20px 0}} input,select,button{{background:#0f0f0f;border:1px solid #2a2a2a;color:#e0e0e0;border-radius:6px;padding:9px 11px}}
-  button{{cursor:pointer;background:#f0a500;color:#000;font-weight:600}} table{{width:100%;border-collapse:collapse;font-size:.88rem}} th,td{{padding:10px;border-bottom:1px solid #222;text-align:left;vertical-align:top}} th{{color:#777;text-transform:uppercase;font-size:.72rem}} code{{color:#f0a500}}
-</style>
-</head>
-<body>
-<header><h1>Tracking Admin</h1><div><a href="/admin">Dashboard</a></div></header>
-<main>
-  <form class="search" method="GET" action="/admin/tracking">
-    <input name="q" value="{search_query}" placeholder="Order, shipment, tracking, status"/>
-    <select name="brand">{brand_options}</select>
-    <button type="submit">Search</button>
-  </form>
-  <div class="stats">
-    <div class="stat"><div class="label">Shipments</div><div class="value">{total_shipments}</div></div>
-    <div class="stat"><div class="label">Active</div><div class="value">{active_shipments}</div></div>
-    <div class="stat"><div class="label">Delivered</div><div class="value">{delivered_shipments}</div></div>
-    <div class="stat"><div class="label">Delayed</div><div class="value">{delayed_shipments}</div></div>
-    <div class="stat"><div class="label">Delay %</div><div class="value">{delay_percentage}</div></div>
-    <div class="stat"><div class="label">Requests</div><div class="value">{tracking_requests}</div></div>
-  </div>
-  <h2>Shipments</h2>
-  <table>
-    <thead><tr><th>Brand</th><th>Order</th><th>Tracking</th><th>Status</th><th>Hub</th><th>Location</th><th>ETA</th><th>Detail</th></tr></thead>
-    <tbody>{rows}</tbody>
-  </table>
-  <h2>Common Hubs</h2>
-  <table>
-    <thead><tr><th>Hub</th><th>Current Shipments</th></tr></thead>
-    <tbody>{hub_rows}</tbody>
-  </table>
-</main>
-</body>
-</html>
+{% extends "admin_base.html" %}
+{% block title %}Tracking Admin{% endblock %}
+{% block extra_style %}
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin:24px 0}
+.stat{border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:16px}
+.stat .label{font-size:.72rem;color:var(--dim);text-transform:uppercase}
+.stat .value{font-size:1.7rem;color:var(--accent);margin-top:6px}
+form.search{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:20px 0}
+input,select,button{background:#0f0f0f;border:1px solid #2a2a2a;color:#e0e0e0;border-radius:6px;padding:9px 11px}
+button{cursor:pointer;background:var(--accent);color:#000;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th,td{padding:10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+th{color:var(--dim);text-transform:uppercase;font-size:.72rem}
+code{color:var(--accent)}
+h2{font-family:var(--mono);font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-top:30px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:8px}
+{% endblock %}
+{% block content %}
+<form class="search" method="GET" action="/admin/tracking">
+  <input name="q" value="{{ search_query }}" placeholder="Order, shipment, tracking, status"/>
+  <select name="brand">
+    <option value="">All brands</option>
+    {% for brand in brands %}
+    <option value="{{ brand.slug }}"{% if brand.slug == brand_slug %} selected{% endif %}>{{ brand.slug }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Search</button>
+</form>
+<div class="stats">
+  <div class="stat"><div class="label">Shipments</div><div class="value">{{ total_shipments }}</div></div>
+  <div class="stat"><div class="label">Active</div><div class="value">{{ active_shipments }}</div></div>
+  <div class="stat"><div class="label">Delivered</div><div class="value">{{ delivered_shipments }}</div></div>
+  <div class="stat"><div class="label">Delayed</div><div class="value">{{ delayed_shipments }}</div></div>
+  <div class="stat"><div class="label">Delay %</div><div class="value">{{ delay_percentage }}</div></div>
+  <div class="stat"><div class="label">Requests</div><div class="value">{{ tracking_requests }}</div></div>
+</div>
+<h2>Shipments</h2>
+<table>
+  <thead><tr><th>Brand</th><th>Order</th><th>Tracking</th><th>Status</th><th>Hub</th><th>Location</th><th>ETA</th><th>Detail</th></tr></thead>
+  <tbody>
+  {% if shipments %}
+  {% for s in shipments %}
+    <tr>
+      <td><code>{{ s.brand_slug }}</code></td>
+      <td>{{ s.order_id }}</td>
+      <td><code>{{ s.tracking_number }}</code></td>
+      <td>{{ s.status_label }}</td>
+      <td>{{ s.current_hub }}</td>
+      <td>{{ s.location_text }}</td>
+      <td>{{ s.eta_date }}</td>
+      <td><a href="/admin/tracking/{{ s.id }}">View</a></td>
+    </tr>
+  {% endfor %}
+  {% else %}
+    <tr><td colspan="8" style="color:var(--dim);text-align:center;padding:24px">No shipments found</td></tr>
+  {% endif %}
+  </tbody>
+</table>
+<h2>Common Hubs</h2>
+<table>
+  <thead><tr><th>Hub</th><th>Current Shipments</th></tr></thead>
+  <tbody>
+  {% if hubs %}
+  {% for hub in hubs %}
+    <tr><td>{{ hub.name }}</td><td>{{ hub.count }}</td></tr>
+  {% endfor %}
+  {% else %}
+    <tr><td colspan="2" style="color:var(--dim);text-align:center;padding:24px">No hub data yet</td></tr>
+  {% endif %}
+  </tbody>
+</table>
+{% endblock %}

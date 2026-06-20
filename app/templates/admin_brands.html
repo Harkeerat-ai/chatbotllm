@@ -1,0 +1,103 @@
+{% extends "admin_base.html" %}
+{% block title %}Brands Admin{% endblock %}
+{% block extra_style %}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{text-align:left;padding:10px 12px;font-family:var(--mono);font-size:.72rem;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--border)}
+td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:hover td{background:var(--surface)}
+code{font-family:var(--mono);font-size:.8rem;color:var(--accent)}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+h2{font-family:var(--mono);font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-top:30px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:8px}
+form.create{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:30px;padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:8px}
+form.create label{font-size:.72rem;color:var(--dim);text-transform:uppercase;font-family:var(--mono);display:flex;flex-direction:column;gap:4px}
+form.create input{background:#0f0f0f;border:1px solid #2a2a2a;color:#e0e0e0;border-radius:6px;padding:8px 10px;min-width:130px}
+form.create button{background:var(--accent);color:#000;border:none;border-radius:6px;padding:8px 18px;cursor:pointer;font-weight:600}
+form.inline{display:inline}
+form.inline button{background:none;border:none;color:var(--accent);cursor:pointer;font-family:var(--mono);font-size:.8rem;text-decoration:none;padding:0}
+form.inline button:hover{text-decoration:underline}
+.popup-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center}
+.popup-overlay.open{display:flex}
+.popup{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:30px;min-width:400px;max-width:500px}
+.popup h3{font-family:var(--mono);font-size:.9rem;margin-bottom:16px;color:var(--accent)}
+.popup label{font-size:.72rem;color:var(--dim);text-transform:uppercase;font-family:var(--mono);display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+.popup input,.popup textarea,.popup select{background:#0f0f0f;border:1px solid #2a2a2a;color:#e0e0e0;border-radius:6px;padding:8px 10px;width:100%}
+.popup textarea{resize:vertical;min-height:60px}
+.popup .actions{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+.popup .actions button{background:var(--accent);color:#000;border:none;border-radius:6px;padding:8px 18px;cursor:pointer;font-weight:600}
+.popup .actions .cancel{background:transparent;border:1px solid var(--border);color:var(--dim)}
+.success{background:#0a2a0a;border:1px solid #060;color:#6d6;padding:10px 16px;border-radius:6px;margin-bottom:20px;font-size:.85rem}
+.error{background:#2a0000;border:1px solid #600;color:#f88;padding:10px 16px;border-radius:6px;margin-bottom:20px;font-size:.85rem}
+{% endblock %}
+{% block content %}
+{% if success %}<div class="success">{{ success }}</div>{% endif %}
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<h2>Create Brand</h2>
+<form class="create" method="POST" action="/admin/brands/create">
+  <label>Slug <input name="slug" placeholder="my-brand" required></label>
+  <label>Name <input name="name" placeholder="My Brand" required></label>
+  <label>Language <input name="language" placeholder="en" value="en"></label>
+  <label>Description <input name="description" placeholder="Optional description"></label>
+  <button type="submit">Create</button>
+</form>
+
+<h2>Brands</h2>
+<table>
+  <thead><tr><th>Slug</th><th>Name</th><th>Language</th><th>Chunks</th><th>Conversations</th><th>Leads</th><th>Created</th><th>Actions</th></tr></thead>
+  <tbody>
+  {% if brands %}
+  {% for b in brands %}
+    <tr>
+      <td><code>{{ b.slug }}</code></td>
+      <td>{{ b.name }}</td>
+      <td>{{ b.language }}</td>
+      <td>{{ b.chunks }}</td>
+      <td>{{ b.convs }}</td>
+      <td>{{ b.leads }}</td>
+      <td>{{ b.created_at }}</td>
+      <td>
+        <a href="#" onclick="openEdit('{{ b.slug }}','{{ b.name }}','{{ b.description }}','{{ b.language }}');return false">Edit</a>
+        <a href="/admin/brands/{{ b.slug }}/sources" style="margin-left:8px">Sources</a>
+        <a href="/admin/brands/{{ b.slug }}/leads" style="margin-left:8px">Leads</a>
+        <a href="/admin/brands/{{ b.slug }}/conversations" style="margin-left:8px">Conversations</a>
+      </td>
+    </tr>
+  {% endfor %}
+  {% else %}
+    <tr><td colspan="8" style="color:var(--dim);text-align:center;padding:24px">No brands</td></tr>
+  {% endif %}
+  </tbody>
+</table>
+
+<div class="popup-overlay" id="editPopup">
+  <div class="popup">
+    <h3>Edit Brand</h3>
+    <form method="POST" action="">
+      <label>Name <input name="name" id="edit_name" required></label>
+      <label>Description <textarea name="description" id="edit_description"></textarea></label>
+      <label>Language <input name="language" id="edit_language"></label>
+      <div class="actions">
+        <button type="button" class="cancel" onclick="closeEdit()">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openEdit(slug, name, description, language) {
+  document.getElementById('editPopup').querySelector('form').action = '/admin/brands/' + slug + '/edit';
+  document.getElementById('edit_name').value = name;
+  document.getElementById('edit_description').value = description;
+  document.getElementById('edit_language').value = language;
+  document.getElementById('editPopup').classList.add('open');
+}
+function closeEdit() {
+  document.getElementById('editPopup').classList.remove('open');
+}
+document.getElementById('editPopup').addEventListener('click', function(e) {
+  if (e.target === this) closeEdit();
+});
+</script>
+{% endblock %}

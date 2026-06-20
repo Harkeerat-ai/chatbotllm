@@ -16,6 +16,7 @@ CONTEXT_IDLE_TIMEOUT = timedelta(minutes=10)
 STATES = frozenset({
     "idle",
     "awaiting_lookup_value",
+    "awaiting_clarification",
     "validating_input",
     "awaiting_verification",
     "performing_lookup",
@@ -39,6 +40,11 @@ TRANSITION_TABLE: dict[tuple[str, str], tuple[str, str]] = {
     ("idle", "intent_detected_with_value"): ("validating_input", "validate_lookup"),
     ("idle", "intent_detected_no_value"): ("awaiting_lookup_value", "ask_for_value"),
     ("idle", "no_intent"): ("idle", "normal_rag"),
+    ("idle", "clarification_needed"): ("awaiting_clarification", "ask_clarification"),
+
+    # awaiting_clarification transitions
+    ("awaiting_clarification", "clarification_provided"): ("idle", "retry_rag"),
+    ("awaiting_clarification", "clarification_skipped"): ("idle", "reset_context"),
 
     # awaiting_lookup_value transitions
     ("awaiting_lookup_value", "valid_value_provided"): ("validating_input", "validate_lookup"),

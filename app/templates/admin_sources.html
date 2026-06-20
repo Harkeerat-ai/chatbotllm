@@ -1,0 +1,55 @@
+{% extends "admin_base.html" %}
+{% block title %}Sources – {{ brand_slug }}{% endblock %}
+{% block extra_style %}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{text-align:left;padding:10px 12px;font-family:var(--mono);font-size:.72rem;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--border)}
+td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:hover td{background:var(--surface)}
+code{font-family:var(--mono);font-size:.8rem;color:var(--accent)}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+h2{font-family:var(--mono);font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-top:30px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:8px}
+.badge{display:inline-block;padding:2px 8px;border-radius:3px;font-family:var(--mono);font-size:.72rem}
+.badge.active{background:#1a2a1a;color:#6dcd6d}
+.badge.inactive{background:#2a1a1a;color:#cd6d6d}
+form.inline{display:inline}
+form.inline button{background:none;border:none;color:var(--accent);cursor:pointer;font-family:var(--mono);font-size:.8rem;padding:0}
+form.inline button:hover{text-decoration:underline}
+.success{background:#0a2a0a;border:1px solid #060;color:#6d6;padding:10px 16px;border-radius:6px;margin-bottom:20px;font-size:.85rem}
+.error{background:#2a0000;border:1px solid #600;color:#f88;padding:10px 16px;border-radius:6px;margin-bottom:20px;font-size:.85rem}
+.back{display:inline-block;margin-bottom:16px;font-size:.85rem}
+{% endblock %}
+{% block content %}
+{% if success %}<div class="success">{{ success }}</div>{% endif %}
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<a class="back" href="/admin/brands">&larr; Back to Brands</a>
+<h2>Knowledge Sources — <code>{{ brand_slug }}</code></h2>
+<table>
+  <thead><tr><th>Name</th><th>Type</th><th>Version</th><th>Active</th><th>Chunks</th><th>Created</th><th>Actions</th></tr></thead>
+  <tbody>
+  {% if sources %}
+  {% for s in sources %}
+    <tr>
+      <td>{{ s.name }}</td>
+      <td><code>{{ s.source_type }}</code></td>
+      <td>{{ s.version }}</td>
+      <td><span class="badge {{ 'active' if s.is_active else 'inactive' }}">{{ 'Yes' if s.is_active else 'No' }}</span></td>
+      <td>{{ s.chunk_count }}</td>
+      <td>{{ s.created_at }}</td>
+      <td>
+        {% if s.is_active and s.can_rollback %}
+        <form class="inline" method="POST" action="/admin/brands/{{ brand_slug }}/sources/{{ s.id }}/rollback">
+          <button type="submit" onclick="return confirm('Rollback to previous version?')">Rollback</button>
+        </form>
+        {% else %}
+        <span style="color:var(--dim)">—</span>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  {% else %}
+    <tr><td colspan="7" style="color:var(--dim);text-align:center;padding:24px">No knowledge sources</td></tr>
+  {% endif %}
+  </tbody>
+</table>
+{% endblock %}

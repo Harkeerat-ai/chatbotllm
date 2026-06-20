@@ -14,6 +14,8 @@ class Brand(Base):
     slug = Column(String(64), unique=True, index=True, nullable=False)
     name = Column(String(128), nullable=False)
     description = Column(Text, default="")
+    widget_config_json = Column(Text, default="{}")
+    language = Column(String(10), default="en")
     created_at = Column(DateTime, default=datetime.utcnow)
 
     sources = relationship("KnowledgeSource", back_populates="brand", cascade="all, delete-orphan")
@@ -50,10 +52,14 @@ class KnowledgeSource(Base):
     source_type = Column(String(32), nullable=False)  # pdf | text | faq | crawl
     uri = Column(Text, default="")                     # file path or URL
     chunk_count = Column(Integer, default=0)
+    version = Column(Integer, default=1)
+    is_active = Column(Boolean, default=True)
+    previous_source_id = Column(Integer, ForeignKey("knowledge_sources.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     brand = relationship("Brand", back_populates="sources")
     chunks = relationship("Chunk", back_populates="source", cascade="all, delete-orphan")
+    previous_source = relationship("KnowledgeSource", remote_side=[id], backref="next_versions")
 
 
 class Chunk(Base):
@@ -79,6 +85,7 @@ class Conversation(Base):
     session_id = Column(String(128), index=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    summary_json = Column(Text, default="{}")
 
     brand = relationship("Brand", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan", order_by="Message.created_at")
@@ -94,6 +101,7 @@ class Message(Base):
     content = Column(Text, nullable=False)
     token_count = Column(Integer, default=0)
     latency_ms = Column(Integer, default=0)
+    suggested_questions_json = Column(Text, default="[]")
     created_at = Column(DateTime, default=datetime.utcnow)
 
     conversation = relationship("Conversation", back_populates="messages")
@@ -346,6 +354,18 @@ class TrackingOverride(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     shipment = relationship("Shipment", back_populates="overrides")
+
+
+class MessageFeedback(Base):
+    __tablename__ = "message_feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("messages.id"), nullable=False)
+    brand_id = Column(Integer, ForeignKey("brands.id"), nullable=False)
+    session_id = Column(String(128), default="")
+    rating = Column(Integer, nullable=False)
+    feedback_text = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class ConversationContext(Base):

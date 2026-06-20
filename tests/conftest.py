@@ -9,6 +9,7 @@ from app.db import Base
 
 @pytest.fixture
 def db_session():
+    import app.models  # ensure models are registered with Base.metadata
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     Base.metadata.create_all(bind=engine)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -1,0 +1,36 @@
+{% extends "admin_base.html" %}
+{% block title %}Leads – {{ brand_slug }}{% endblock %}
+{% block extra_style %}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{text-align:left;padding:10px 12px;font-family:var(--mono);font-size:.72rem;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--border)}
+td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:hover td{background:var(--surface)}
+code{font-family:var(--mono);font-size:.8rem;color:var(--accent)}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+h2{font-family:var(--mono);font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-top:30px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:8px}
+.back{display:inline-block;margin-bottom:16px;font-size:.85rem}
+{% endblock %}
+{% block content %}
+<a class="back" href="/admin/brands">&larr; Back to Brands</a>
+<h2>Leads — <code>{{ brand_slug }}</code></h2>
+<table>
+  <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Company</th><th>Source</th><th>Created</th></tr></thead>
+  <tbody>
+  {% if leads %}
+  {% for lead in leads %}
+    <tr>
+      <td>{{ lead.name }}</td>
+      <td><a href="mailto:{{ lead.email }}">{{ lead.email }}</a></td>
+      <td>{{ lead.phone }}</td>
+      <td>{{ lead.company }}</td>
+      <td><code>{{ lead.source }}</code></td>
+      <td>{{ lead.created_at }}</td>
+    </tr>
+  {% endfor %}
+  {% else %}
+    <tr><td colspan="6" style="color:var(--dim);text-align:center;padding:24px">No leads</td></tr>
+  {% endif %}
+  </tbody>
+</table>
+{% endblock %}

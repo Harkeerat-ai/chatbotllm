@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>{% block title %}RAG Admin{% endblock %}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{--bg:#0a0a0a;--surface:#141414;--border:#222;--accent:#f0a500;--text:#e0e0e0;--dim:#666;--font:'IBM Plex Sans',sans-serif;--mono:'IBM Plex Mono',monospace}
+  body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh}
+  header{border-bottom:1px solid var(--border);padding:16px 32px;display:flex;align-items:center;justify-content:space-between;background:var(--surface)}
+  header h1{font-family:var(--mono);font-size:1rem;color:var(--accent);letter-spacing:.1em;text-transform:uppercase}
+  header nav{display:flex;gap:16px;align-items:center}
+  header nav a{color:var(--dim);text-decoration:none;font-size:.8rem;font-family:var(--mono);transition:color .2s}
+  header nav a:hover{color:var(--text)}
+  header form{display:inline}
+  header button{background:none;border:1px solid var(--border);color:var(--dim);padding:6px 14px;border-radius:4px;cursor:pointer;font-size:.8rem;font-family:var(--mono);transition:color .2s}
+  header button:hover{color:var(--text)}
+  main{padding:32px;max-width:1200px;margin:0 auto}
+  {% block extra_style %}{% endblock %}
+</style>
+{% block head %}{% endblock %}
+</head>
+<body>
+<header>
+  <h1>&#x2B21; RAG Admin</h1>
+  <nav>
+    <a href="/admin">Dashboard</a>
+    <a href="/admin/tracking">Tracking</a>
+    <a href="/admin/analytics">Analytics</a>
+    <a href="/admin/brands">Brands</a>
+    <form method="POST" action="/admin/logout" style="display:inline">
+      <button type="submit">Sign out</button>
+    </form>
+  </nav>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

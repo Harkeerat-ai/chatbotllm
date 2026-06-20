@@ -1,99 +1,102 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<title>RAG Admin</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
-  *,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
-  :root{{
-    --bg:#0a0a0a;--surface:#141414;--border:#222;
-    --accent:#f0a500;--text:#e0e0e0;--dim:#666;
-    --font:'IBM Plex Sans',sans-serif;--mono:'IBM Plex Mono',monospace;
-  }}
-  body{{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh}}
-  header{{
-    border-bottom:1px solid var(--border);padding:16px 32px;
-    display:flex;align-items:center;justify-content:space-between;
-    background:var(--surface);
-  }}
-  header h1{{font-family:var(--mono);font-size:1rem;color:var(--accent);letter-spacing:.1em;text-transform:uppercase}}
-  header form{{display:inline}}
-  header button{{
-    background:none;border:1px solid var(--border);color:var(--dim);
-    padding:6px 14px;border-radius:4px;cursor:pointer;font-size:.8rem;
-    font-family:var(--mono);transition:color .2s;
-  }}
-  header button:hover{{color:var(--text)}}
-  main{{padding:32px;max-width:1200px;margin:0 auto}}
-  .stats{{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px;margin-bottom:40px}}
-  .stat{{
-    background:var(--surface);border:1px solid var(--border);
-    border-radius:8px;padding:20px;
-  }}
-  .stat .label{{font-size:.72rem;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;font-family:var(--mono);margin-bottom:8px}}
-  .stat .value{{font-size:2rem;font-weight:300;color:var(--accent);font-family:var(--mono)}}
-  section{{margin-bottom:40px}}
-  section h2{{font-family:var(--mono);font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:8px}}
-  table{{width:100%;border-collapse:collapse;font-size:.85rem}}
-  th{{text-align:left;padding:10px 12px;font-family:var(--mono);font-size:.72rem;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--border)}}
-  td{{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}}
-  tr:hover td{{background:var(--surface)}}
-  code{{font-family:var(--mono);font-size:.8rem;color:var(--accent)}}
-  a{{color:var(--accent);text-decoration:none}}
-  a:hover{{text-decoration:underline}}
-  .role{{font-family:var(--mono);font-size:.72rem;padding:2px 8px;border-radius:3px}}
-  .role.user{{background:#1a2a1a;color:#6dcd6d}}
-  .role.assistant{{background:#1a1a2a;color:#6d9dcd}}
-  .error{{background:#2a0000;border:1px solid #600;color:#f88;padding:10px 16px;border-radius:6px;margin-bottom:20px;font-size:.85rem}}
-</style>
-</head>
-<body>
-<header>
-  <h1>⬡ RAG Admin</h1>
-  <div style="display:flex;gap:10px;align-items:center">
-    <a href="/admin/tracking">Tracking</a>
-    <form method="POST" action="/admin/logout">
-      <button type="submit">Sign out</button>
-    </form>
-  </div>
-</header>
-<main>
-  {error_html}
-  <div class="stats">
-    <div class="stat"><div class="label">Brands</div><div class="value">{len_brands}</div></div>
-    <div class="stat"><div class="label">Chunks</div><div class="value">{total_chunks}</div></div>
-    <div class="stat"><div class="label">Conversations</div><div class="value">{total_convs}</div></div>
-    <div class="stat"><div class="label">Messages</div><div class="value">{total_msgs}</div></div>
-    <div class="stat"><div class="label">Leads</div><div class="value">{total_leads}</div></div>
-    <div class="stat"><div class="label">Events</div><div class="value">{total_events}</div></div>
-    <div class="stat"><div class="label">Shipments</div><div class="value">{total_shipments}</div></div>
-    <div class="stat"><div class="label">Delayed</div><div class="value">{delayed_shipments}</div></div>
-  </div>
+{% extends "admin_base.html" %}
+{% block title %}RAG Admin Dashboard{% endblock %}
+{% block extra_style %}
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px;margin-bottom:40px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px}
+.stat .label{font-size:.72rem;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;font-family:var(--mono);margin-bottom:8px}
+.stat .value{font-size:2rem;font-weight:300;color:var(--accent);font-family:var(--mono)}
+section{margin-bottom:40px}
+section h2{font-family:var(--mono);font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:8px}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{text-align:left;padding:10px 12px;font-family:var(--mono);font-size:.72rem;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--border)}
+td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:hover td{background:var(--surface)}
+code{font-family:var(--mono);font-size:.8rem;color:var(--accent)}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.role{font-family:var(--mono);font-size:.72rem;padding:2px 8px;border-radius:3px}
+.role.user{background:#1a2a1a;color:#6dcd6d}
+.role.assistant{background:#1a1a2a;color:#6d9dcd}
+.error{background:#2a0000;border:1px solid #600;color:#f88;padding:10px 16px;border-radius:6px;margin-bottom:20px;font-size:.85rem}
+{% endblock %}
+{% block content %}
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<div class="stats">
+  <div class="stat"><div class="label">Brands</div><div class="value">{{ len_brands }}</div></div>
+  <div class="stat"><div class="label">Chunks</div><div class="value">{{ total_chunks }}</div></div>
+  <div class="stat"><div class="label">Conversations</div><div class="value">{{ total_convs }}</div></div>
+  <div class="stat"><div class="label">Messages</div><div class="value">{{ total_msgs }}</div></div>
+  <div class="stat"><div class="label">Leads</div><div class="value">{{ total_leads }}</div></div>
+  <div class="stat"><div class="label">Events</div><div class="value">{{ total_events }}</div></div>
+  <div class="stat"><div class="label">Shipments</div><div class="value">{{ total_shipments }}</div></div>
+  <div class="stat"><div class="label">Delayed</div><div class="value">{{ delayed_shipments }}</div></div>
+</div>
 
-  <section>
-    <h2>Brands</h2>
-    <table>
-      <thead><tr><th>Slug</th><th>Name</th><th>Chunks</th><th>Conversations</th><th>Leads</th><th>Widget</th></tr></thead>
-      <tbody>{brand_rows}</tbody>
-    </table>
-  </section>
+<section>
+  <h2>Brands</h2>
+  <table>
+    <thead><tr><th>Slug</th><th>Name</th><th>Chunks</th><th>Conversations</th><th>Leads</th><th>Widget</th></tr></thead>
+    <tbody>
+    {% if brands %}
+    {% for b in brands %}
+      <tr>
+        <td><code>{{ b.slug }}</code></td>
+        <td>{{ b.name }}</td>
+        <td>{{ b.chunk_count }}</td>
+        <td>{{ b.conversation_count }}</td>
+        <td>{{ b.lead_count }}</td>
+        <td><a href="/widget/{{ b.slug }}" target="_blank">Open widget ↗</a></td>
+      </tr>
+    {% endfor %}
+    {% else %}
+      <tr><td colspan="6" style="color:var(--dim);text-align:center;padding:24px">No brands</td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+</section>
 
-  <section>
-    <h2>Recent Shipments</h2>
-    <table>
-      <thead><tr><th>Brand</th><th>Order</th><th>Tracking</th><th>Status</th><th>Hub</th><th>ETA</th><th>Detail</th></tr></thead>
-      <tbody>{shipment_rows}</tbody>
-    </table>
-  </section>
+<section>
+  <h2>Recent Shipments</h2>
+  <table>
+    <thead><tr><th>Brand</th><th>Order</th><th>Tracking</th><th>Status</th><th>Hub</th><th>ETA</th><th>Detail</th></tr></thead>
+    <tbody>
+    {% if shipments %}
+    {% for s in shipments %}
+      <tr>
+        <td><code>{{ s.brand_slug }}</code></td>
+        <td>{{ s.order_id }}</td>
+        <td><code>{{ s.tracking_number }}</code></td>
+        <td>{{ s.status_label }}</td>
+        <td>{{ s.current_hub }}</td>
+        <td>{{ s.eta_date }}</td>
+        <td><a href="/admin/tracking/{{ s.id }}">View</a></td>
+      </tr>
+    {% endfor %}
+    {% else %}
+      <tr><td colspan="7" style="color:var(--dim);text-align:center;padding:24px">No shipments yet</td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+</section>
 
-  <section>
-    <h2>Recent Activity</h2>
-    <table>
-      <thead><tr><th>Brand</th><th>Role</th><th>Message</th><th>Time</th></tr></thead>
-      <tbody>{recent_rows}</tbody>
-    </table>
-  </section>
-</main>
-</body>
-</html>
+<section>
+  <h2>Recent Activity</h2>
+  <table>
+    <thead><tr><th>Brand</th><th>Role</th><th>Message</th><th>Time</th></tr></thead>
+    <tbody>
+    {% if recent_messages %}
+    {% for m in recent_messages %}
+      <tr>
+        <td><code>{{ m.brand_slug }}</code></td>
+        <td><span class="role {{ m.role }}">{{ m.role }}</span></td>
+        <td>{{ m.content[:80] }}{% if m.content|length > 80 %}…{% endif %}</td>
+        <td>{{ m.created_at }}</td>
+      </tr>
+    {% endfor %}
+    {% else %}
+      <tr><td colspan="4" style="color:var(--dim);text-align:center;padding:24px">No messages yet</td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

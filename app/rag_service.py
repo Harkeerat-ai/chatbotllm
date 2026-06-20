@@ -1,11 +1,12 @@
 from __future__ import annotations
+import asyncio
 import json
 import logging
 import time
 import hashlib
 import threading
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, AsyncGenerator
 
 from cachetools import TTLCache
 from sqlalchemy.orm import Session
@@ -15,6 +16,26 @@ from app import models
 from app.models import ProductPage
 from app.chroma_client import get_collection
 from app.cross_encoder_onnx import CrossEncoderONNX
+from app.prompts import get_prompt
+
+# Module-level response cache — keyed by (brand, user_message, history_hash)
+_resp_cache: TTLCache = TTLCache(maxsize=256, ttl=3600)
+_resp_lock = threading.Lock()
+
+
+def _cache_key(brand_slug: str, user_message: str, history: list[dict] | None = None) -> str:
+    raw = f"{brand_slug}:{user_message}"
+    if history:
+        last_turns = "|".join(f"{m['role']}:{m['content'][:100]}" for m in history[-4:])
+        raw += f":{hashlib.md5(last_turns.encode()).hexdigest()}"
+    return hashlib.md5(raw.lower().encode()).hexdigest()
+
+
+def clear_response_cache() -> None:
+    with _resp_lock:
+        _resp_cache.clear()
+
+
 from app.observability import (
     CHAT_REQUESTS,
     CHAT_LATENCY,
@@ -32,8 +53,6 @@ from app.utils import chunk_text, make_chroma_id
 logger = logging.getLogger(__name__)
 
 _RERANKER: CrossEncoderONNX | None = None
-_resp_cache: TTLCache = TTLCache(maxsize=256, ttl=3600)
-_resp_lock = threading.Lock()
 
 NAVIGATION_KEYWORDS = sorted({"take me to", "go to", "show me", "open", "navigate", "link", "take me"}, key=len, reverse=True)
 
@@ -44,25 +63,12 @@ def _get_reranker() -> CrossEncoderONNX:
         _RERANKER = CrossEncoderONNX()
     return _RERANKER
 
-SYSTEM_PROMPT = (
-    "You are a friendly and knowledgeable assistant for {brand_name}. "
-    "Answer the customer's question clearly using only the provided context. "
-    "Keep your answer to 2\u20133 sentences. "
-    "Write in plain text only \u2014 no bullet points, no markdown, no headers, no URLs. "
-    "If the context does not contain the answer, say so politely in one sentence "
-    "and suggest the customer reach out to {brand_name} support directly."
-)
-
-LOGISTICS_SYSTEM_PROMPT = (
-    "You are a helpful logistics assistant for {brand_name}. "
-    "Given the tracking data below, write a friendly, natural language update "
-    "for the customer. Be concise (2-4 sentences) but include the key information: "
-    "current status, current hub, ETA, and any delay reasons. "
-    "Write in plain text only - no markdown, no formatting, no bullet points."
-)
-
-
 settings = get_settings()
+
+
+def _resolve_language(brand: models.Brand) -> str:
+    lang = getattr(brand, "language", None)
+    return lang or settings.default_language
 
 
 class RAGService:
@@ -80,12 +86,11 @@ class RAGService:
         # start time for latency measurements when returning early
         t0 = time.monotonic()
         product_urls: list[dict] = []
-        _key = hashlib.md5(f"{brand.slug}:{user_message}".lower().encode()).hexdigest()
+        _key = _cache_key(brand.slug, user_message)
         with _resp_lock:
             _cached = _resp_cache.get(_key)
         if _cached:
             return _cached
-        # 1. Retrieve or create conversation
         conv = conversation_repo.save_conversation(db, brand.id, session_id)
 
         # 2. Load recent memory (last 6 turns)
@@ -96,7 +101,14 @@ class RAGService:
             .limit(12)
             .all()
         )
-        history = [
+
+        # 2a. Prepend stored summary to history if available
+        summary_data = json.loads(conv.summary_json) if conv.summary_json else {}
+        summary_text = summary_data.get("summary", "")
+        history = []
+        if summary_text:
+            history.append({"role": "system", "content": f"Previous conversation summary: {summary_text}"})
+        history += [
             {"role": m.role, "content": m.content}
             for m in reversed(recent_msgs)
         ]
@@ -114,6 +126,7 @@ class RAGService:
 
         # 4. State-machine-driven tracking flow
         ctx = state_machine.get_context(db, conv.id)
+        _lang = _resolve_language(brand)
 
         try:
             if state_machine.is_tracking_active(ctx):
@@ -204,8 +217,18 @@ class RAGService:
         if blocked:
             return blocked
 
+        # 5a. Clarification follow-up: if we asked a clarification question on the previous turn,
+        # combine the user's answer with the original query to improve retrieval.
+        if ctx.state == "awaiting_clarification":
+            original = state_machine.get_slot(ctx, "clarification_original_query", "")
+            if original:
+                user_message = f"{original} {user_message}"
+            state_machine.reset(db, ctx)
+            ctx = state_machine.get_context(db, conv.id)
+
         # 5. Vector retrieval
         sources: list[str] = []
+        citations: list[dict] = []
         context = ""
 
         TRACKING_KEYWORDS = {"order","track","delivery","shipment","dispatch","arrive","late","return","refund"}
@@ -213,9 +236,16 @@ class RAGService:
         effective_top_k = top_k if is_tracking else 1
 
         try:
-            results = collection.query(query_texts=[user_message], n_results=effective_top_k)
-            docs = results.get("documents", [[]])[0]
-            metas = results.get("metadatas", [[]])[0]
+            from app.hybrid_retriever import get_hybrid_retriever
+            hybrid = get_hybrid_retriever(brand.slug)
+            hybrid_results = hybrid.hybrid_query(user_message, top_k=effective_top_k)
+            if hybrid_results:
+                docs = [r.document for r in hybrid_results]
+                metas = [r.metadata for r in hybrid_results]
+            else:
+                results = collection.query(query_texts=[user_message], n_results=effective_top_k)
+                docs = results.get("documents", [[]])[0]
+                metas = results.get("metadatas", [[]])[0]
 
             if docs and len(docs) > 1:
                 pairs = [(user_message, doc) for doc in docs]
@@ -225,9 +255,34 @@ class RAGService:
                 )[:3]
                 docs = [d for _, d, _ in scored]
                 metas = [m for _, _, m in scored]
+                top_score = scored[0][0] if scored and len(scored) > 0 and scored[0] else 0.0
+            else:
+                top_score = 0.0
+
+            reranker_ran = docs and len(docs) > 1
+            if len(docs) == 0 or (reranker_ran and top_score < settings.clarification_threshold):
+                state_machine.set_slot(ctx, "clarification_original_query", user_message)
+                state_machine.apply_transition(db, ctx, "clarification_needed")
+                answer = await self._generate_clarification_question(docs, metas, brand.name, _lang)
+                latency_ms = int((time.monotonic() - t0) * 1000)
+                asst_msg = models.Message(
+                    conversation_id=conv.id, role="assistant", content=answer, latency_ms=latency_ms,
+                )
+                conversation_repo.save_messages(db, pending_messages + [asst_msg])
+                conversation_repo.flush_deferred(db)
+                return {
+                    "brand": brand.slug, "session_id": session_id, "answer": answer,
+                    "sources": [], "citations": [], "urls": product_urls,
+                    "latency_ms": latency_ms,
+                }
 
             context = "\n\n".join(doc[:1200] for doc in docs)
             sources = [m.get("source_name", "") for m in metas if m.get("source_name")]
+            citations = [
+                {"source_name": m.get("source_name", ""), "snippet": d[:200]}
+                for d, m in zip(docs[:3], metas[:3])
+                if m.get("source_name")
+            ]
 
             # Product page lookup — only on explicit navigation intent
             msg_lower = user_message.lower()
@@ -402,7 +457,10 @@ class RAGService:
         llm_messages = history + [{"role": "user", "content": user_message}]
 
         # 7. Generate answer
-        system_prompt = SYSTEM_PROMPT.format(brand_name=brand.name)
+        _lang = _resolve_language(brand)
+        system_prompt = get_prompt("system", _lang).format(brand_name=brand.name)
+        if _lang != "en":
+            system_prompt += f" Respond in {_lang}."
         t_llm_start = time.monotonic()
         answer, latency_ms = await ollama.chat(system_prompt, llm_messages, context)
         t_llm = time.monotonic() - t_llm_start
@@ -440,7 +498,9 @@ class RAGService:
             "brand": brand.slug,
             "session_id": session_id,
             "answer": answer,
+            "message_id": asst_msg.id,
             "sources": list(dict.fromkeys(sources)),  # deduplicated, order-preserved
+            "citations": citations,
             "urls": product_urls,
             "latency_ms": latency_ms,
         }
@@ -931,7 +991,10 @@ class RAGService:
         tracking_data: dict[str, Any],
         history: list[dict],
     ) -> str:
-        system_prompt = LOGISTICS_SYSTEM_PROMPT.format(brand_name=brand.name)
+        _lang = _resolve_language(brand)
+        system_prompt = get_prompt("logistics_system", _lang).format(brand_name=brand.name)
+        if _lang != "en":
+            system_prompt += f" Respond in {_lang}."
         context_str = json.dumps(tracking_data, indent=2)
         answer, _ = await ollama.chat(system_prompt, history[-4:], context_str, append_rag_instruction=False)
 
@@ -981,5 +1044,359 @@ class RAGService:
 
         return "\n".join(lines)
 
+    async def _generate_clarification_question(
+        self,
+        docs: list[str],
+        metas: list[dict],
+        brand_name: str,
+        language: str = "en",
+    ) -> str:
+        topics = set()
+        for d, m in zip(docs[:3], metas[:3]):
+            name = m.get("source_name", "")
+            snippet = d[:100].strip() if d else ""
+            if name:
+                topics.add(name)
+            if snippet:
+                topics.add(snippet)
+
+        if topics:
+            topic_list = ", ".join(list(topics)[:3])
+            prompt = get_prompt("clarification_prompt", language).format(topic_list=topic_list, brand_name=brand_name)
+            system = get_prompt("clarification_system", language)
+            answer, _ = await ollama.chat(system, [], prompt, append_rag_instruction=False)
+            if answer and not answer.startswith("["):
+                return answer.strip()
+            return get_prompt("clarification_fallback", language).format(topic_list=topic_list)
+        return get_prompt("clarification_none", language)
+
+    async def ask_stream(
+        self,
+        db: Session,
+        brand: models.Brand,
+        session_id: str,
+        user_message: str,
+        top_k: int | None = None,
+        allow_unverified_tracking: bool = False,
+    ) -> AsyncGenerator[str, None]:
+        _key = _cache_key(brand.slug, user_message)
+        with _resp_lock:
+            _cached = _resp_cache.get(_key)
+        if _cached:
+            yield f"data: {json.dumps(_cached)}\n\n"
+            return
+        if top_k is None:
+            top_k = settings.default_top_k
+        t0 = time.monotonic()
+        product_urls: list[dict] = []
+
+        conv = conversation_repo.save_conversation(db, brand.id, session_id)
+
+        recent_msgs = (
+            db.query(models.Message)
+            .filter_by(conversation_id=conv.id)
+            .order_by(models.Message.created_at.desc())
+            .limit(12)
+            .all()
+        )
+
+        summary_data = json.loads(conv.summary_json) if conv.summary_json else {}
+        summary_text = summary_data.get("summary", "")
+        history = []
+        if summary_text:
+            history.append({"role": "system", "content": f"Previous conversation summary: {summary_text}"})
+        history += [
+            {"role": m.role, "content": m.content}
+            for m in reversed(recent_msgs)
+        ]
+
+        collection = get_collection(brand.slug)
+
+        user_msg = models.Message(
+            conversation_id=conv.id,
+            role="user",
+            content=user_message,
+        )
+        pending_messages: list[models.Message] = [user_msg]
+
+        ctx = state_machine.get_context(db, conv.id)
+        _lang = _resolve_language(brand)
+
+        try:
+            if state_machine.is_tracking_active(ctx):
+                result = await self._handle_active_tracking(
+                    db, brand, session_id, conv, ctx, user_message, history,
+                    allow_unverified_tracking=allow_unverified_tracking,
+                    pending_messages=pending_messages,
+                    product_urls=product_urls,
+                )
+                if result:
+                    yield f"data: {json.dumps(result)}\n\n"
+                    return
+                ctx = state_machine.get_context(db, conv.id)
+
+            lookup_value, lookup_type, confidence = self._safe_extract_lookup(user_message)
+
+            if lookup_value and confidence >= 60:
+                result = await self._handle_new_tracking_intent(
+                    db, brand, session_id, conv, ctx, user_message, history,
+                    allow_unverified_tracking=allow_unverified_tracking,
+                    pending_messages=pending_messages,
+                    product_urls=product_urls,
+                )
+                if result:
+                    yield f"data: {json.dumps(result)}\n\n"
+                    return
+
+            if tracking_service.should_handle_chat(user_message, history):
+                msg_lower = user_message.lower()
+                if any(kw in msg_lower for kw in NAVIGATION_KEYWORDS) and not (lookup_value and confidence >= 60):
+                    pass
+                else:
+                    result = await self._handle_new_tracking_intent(
+                        db, brand, session_id, conv, ctx, user_message, history,
+                        allow_unverified_tracking=allow_unverified_tracking,
+                        pending_messages=pending_messages,
+                        product_urls=product_urls,
+                    )
+                    if result:
+                        yield f"data: {json.dumps(result)}\n\n"
+                        return
+        except Exception as e:
+            logger.exception("Tracking flow failed in stream — %s", e)
+            state_machine.reset(db, ctx)
+            answer = "I'm having trouble accessing the tracking system right now."
+            asst_msg = models.Message(
+                conversation_id=conv.id, role="assistant", content=answer,
+            )
+            conversation_repo.save_messages(db, pending_messages + [asst_msg])
+            conversation_repo.flush_deferred(db)
+            result = {
+                "brand": brand.slug, "session_id": session_id, "answer": answer,
+                "sources": [], "urls": product_urls,
+                "latency_ms": int((time.monotonic() - t0) * 1000),
+            }
+            yield f"data: {json.dumps(result)}\n\n"
+            return
+
+        result_early = self._block_rag_for_tracking(
+            db, brand, session_id, conv, user_message, history, pending_messages, t0,
+            product_urls=product_urls,
+        )
+        if result_early:
+            yield f"data: {json.dumps(result_early)}\n\n"
+            return
+
+        # Clarification follow-up for stream
+        if ctx.state == "awaiting_clarification":
+            original = state_machine.get_slot(ctx, "clarification_original_query", "")
+            if original:
+                user_message = f"{original} {user_message}"
+            state_machine.reset(db, ctx)
+            ctx = state_machine.get_context(db, conv.id)
+
+        sources: list[str] = []
+        citations_list: list[dict] = []
+        context = ""
+
+        try:
+            from app.hybrid_retriever import get_hybrid_retriever
+            hybrid = get_hybrid_retriever(brand.slug)
+            hybrid_results = hybrid.hybrid_query(user_message, top_k=top_k)
+            if hybrid_results:
+                docs = [r.document for r in hybrid_results]
+                metas = [r.metadata for r in hybrid_results]
+            else:
+                results = collection.query(query_texts=[user_message], n_results=top_k)
+                docs = results.get("documents", [[]])[0]
+                metas = results.get("metadatas", [[]])[0]
+
+            if docs and len(docs) > 1:
+                pairs = [(user_message, doc) for doc in docs]
+                scores = _get_reranker().predict(pairs)
+                scored = sorted(
+                    zip(scores, docs, metas), key=lambda x: x[0], reverse=True
+                )[:3]
+                docs = [d for _, d, _ in scored]
+                metas = [m for _, _, m in scored]
+                top_score = scored[0][0] if scored and len(scored) > 0 and scored[0] else 0.0
+            else:
+                top_score = 0.0
+
+            reranker_ran = docs and len(docs) > 1
+            if len(docs) == 0 or (reranker_ran and top_score < settings.clarification_threshold):
+                state_machine.set_slot(ctx, "clarification_original_query", user_message)
+                state_machine.apply_transition(db, ctx, "clarification_needed")
+                answer = await self._generate_clarification_question(docs, metas, brand.name, _lang)
+                latency_ms = int((time.monotonic() - t0) * 1000)
+                asst_msg = models.Message(
+                    conversation_id=conv.id, role="assistant", content=answer, latency_ms=latency_ms,
+                )
+                conversation_repo.save_messages(db, pending_messages + [asst_msg])
+                conversation_repo.flush_deferred(db)
+                yield f"data: {json.dumps({'brand': brand.slug, 'session_id': session_id, 'answer': answer, 'sources': [], 'citations': [], 'urls': product_urls, 'latency_ms': latency_ms})}\n\n"
+                return
+
+            context = "\n\n".join(doc[:1200] for doc in docs)
+            sources = [m.get("source_name", "") for m in metas if m.get("source_name")]
+            citations_list = [
+                {"source_name": m.get("source_name", ""), "snippet": d[:200]}
+                for d, m in zip(docs[:3], metas[:3])
+                if m.get("source_name")
+            ]
+        except Exception as e:
+            logger.error("Chroma query FAILED in stream for %s: %s", brand.slug, e)
+
+        if not context or not context.strip():
+            answer = "I don't have relevant information in the knowledge base to answer that question."
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            asst_msg = models.Message(
+                conversation_id=conv.id, role="assistant", content=answer, latency_ms=latency_ms,
+            )
+            conversation_repo.save_messages(db, pending_messages + [asst_msg])
+            conversation_repo.flush_deferred(db)
+            result = {
+                "brand": brand.slug, "session_id": session_id, "answer": answer,
+                "sources": [], "citations": [], "urls": product_urls, "latency_ms": latency_ms,
+                "message_id": asst_msg.id,
+            }
+            yield f"data: {json.dumps(result)}\n\n"
+            return
+
+        llm_messages = history + [{"role": "user", "content": user_message}]
+        _lang = _resolve_language(brand)
+        system_prompt = get_prompt("system", _lang).format(brand_name=brand.name)
+        if _lang != "en":
+            system_prompt += f" Respond in {_lang}."
+
+        answer_parts: list[str] = []
+        t_llm = time.monotonic()
+
+        try:
+            async for chunk in ollama.stream_chat(
+                system_prompt, llm_messages, context, append_rag_instruction=True,
+            ):
+                if chunk.startswith("["):
+                    answer_parts.append(chunk)
+                    yield f"data: {json.dumps({'token': chunk})}\n\n"
+                else:
+                    answer_parts.append(chunk)
+                    yield f"data: {json.dumps({'token': chunk})}\n\n"
+
+            answer = "".join(answer_parts)
+            latency_ms = int((time.monotonic() - t0) * 1000)
+
+            asst_msg = models.Message(
+                conversation_id=conv.id, role="assistant",
+                content=answer, latency_ms=latency_ms,
+            )
+            conversation_repo.save_messages(db, pending_messages + [asst_msg])
+            conversation_repo.defer(
+                models.AnalyticsEvent(
+                    brand_id=brand.id, event_type="chat",
+                    session_id=session_id,
+                    payload_json=json.dumps({"query_len": len(user_message), "latency_ms": latency_ms}),
+                )
+            )
+            conversation_repo.flush_deferred(db)
+
+            result = {
+                "brand": brand.slug, "session_id": session_id, "answer": answer,
+                "message_id": asst_msg.id,
+                "sources": list(dict.fromkeys(sources)),
+                "citations": citations_list,
+                "urls": product_urls, "latency_ms": latency_ms,
+            }
+            with _resp_lock:
+                _resp_cache[_key] = result
+            yield f"data: {json.dumps(result)}\n\n"
+        except Exception as e:
+            logger.exception("LLM stream failed — %s", e)
+            answer = "I'm sorry, I encountered an error generating a response."
+            asst_msg = models.Message(
+                conversation_id=conv.id, role="assistant", content=answer,
+            )
+            conversation_repo.save_messages(db, pending_messages + [asst_msg])
+            conversation_repo.flush_deferred(db)
+            result = {
+                "brand": brand.slug, "session_id": session_id, "answer": answer,
+                "sources": [], "citations": [], "urls": product_urls,
+                "latency_ms": int((time.monotonic() - t0) * 1000),
+            }
+            yield f"data: {json.dumps(result)}\n\n"
+
 
 rag_service = RAGService()
+
+
+async def _summarize_conversation_async(
+    db: Session,
+    brand_name: str,
+    conv: models.Conversation,
+    language: str = "en",
+) -> None:
+    try:
+        messages = (
+            db.query(models.Message)
+            .filter_by(conversation_id=conv.id)
+            .order_by(models.Message.created_at.asc())
+            .all()
+        )
+        if len(messages) < 12:
+            return
+        older = [m for m in messages[:-8]]
+        if not older:
+            return
+        dialog = "\n".join(f"{m.role}: {m.content[:200]}" for m in older)
+        prompt = get_prompt("summarization_prompt", language).format(dialog=dialog)
+        system = get_prompt("summarization_system", language).format(brand_name=brand_name)
+        summary, _ = await ollama.chat(system, [], prompt, append_rag_instruction=False)
+        if summary and not summary.startswith("["):
+            conv.summary_json = json.dumps({"summary": summary.strip(), "message_count": len(older)})
+            db.commit()
+    except Exception:
+        logger.exception("Background summarization failed for conversation %d", conv.id)
+    finally:
+        db.close()
+
+
+async def _generate_suggestions_async(
+    message_id: int,
+    brand_name: str,
+    answer: str,
+    history: list[dict],
+    user_message: str,
+    language: str = "en",
+) -> None:
+    try:
+        prompt = get_prompt("suggestion_prompt", language).format(brand_name=brand_name)
+        recent = (history[-4:] if len(history) > 4 else history) + [
+            {"role": "user", "content": user_message},
+            {"role": "assistant", "content": answer},
+        ]
+        suggestions_str, _ = await ollama.chat(
+            prompt, recent, "", append_rag_instruction=False,
+        )
+        suggestions_str = suggestions_str.strip()
+        if suggestions_str.startswith("```"):
+            suggestions_str = suggestions_str.split("\n", 1)[-1]
+            suggestions_str = suggestions_str.rsplit("```", 1)[0]
+        suggestions = json.loads(suggestions_str)
+        if not isinstance(suggestions, list):
+            suggestions = []
+        suggestions = [str(s).strip() for s in suggestions if s][:3]
+        if suggestions:
+            from app.db import SessionLocal
+            db = SessionLocal()
+            try:
+                msg = db.query(models.Message).filter_by(id=message_id).first()
+                if msg:
+                    msg.suggested_questions_json = json.dumps(suggestions)
+                    db.commit()
+                    logger.info(
+                        "Stored %d suggestions for message %d", len(suggestions), message_id,
+                    )
+            finally:
+                db.close()
+    except Exception:
+        logger.debug("Failed to generate suggestions for message %d", message_id, exc_info=True)

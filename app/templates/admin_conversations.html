@@ -1,0 +1,59 @@
+{% extends "admin_base.html" %}
+{% block title %}Conversations – {{ brand_slug }}{% endblock %}
+{% block extra_style %}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{text-align:left;padding:10px 12px;font-family:var(--mono);font-size:.72rem;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--border)}
+td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:hover td{background:var(--surface)}
+code{font-family:var(--mono);font-size:.8rem;color:var(--accent)}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+h2{font-family:var(--mono);font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-top:30px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:8px}
+.back{display:inline-block;margin-bottom:16px;font-size:.85rem}
+.summary{color:var(--dim);font-size:.8rem;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.msgs{display:none;background:var(--surface);padding:12px 16px;border-radius:6px;margin:4px 0;font-size:.82rem;max-height:300px;overflow-y:auto}
+.msgs.open{display:table-row}
+.msgs .msg-user{color:#6dcd6d}
+.msgs .msg-assistant{color:#6d9dcd}
+.expand{cursor:pointer;color:var(--accent);font-family:var(--mono);font-size:.72rem}
+.expand:hover{text-decoration:underline}
+{% endblock %}
+{% block content %}
+<a class="back" href="/admin/brands">&larr; Back to Brands</a>
+<h2>Conversations — <code>{{ brand_slug }}</code></h2>
+<table>
+  <thead><tr><th>Session ID</th><th>Messages</th><th>Summary</th><th>Created</th><th></th></tr></thead>
+  <tbody>
+  {% if conversations %}
+  {% for c in conversations %}
+    <tr>
+      <td><code>{{ c.session_id }}</code></td>
+      <td>{{ c.msg_count }}</td>
+      <td><div class="summary" title="{{ c.summary }}">{{ c.summary or '—' }}</div></td>
+      <td>{{ c.created_at }}</td>
+      <td><span class="expand" onclick="toggleMsgs('msgs-{{ loop.index }}')">Expand</span></td>
+    </tr>
+    <tr id="msgs-{{ loop.index }}" class="msgs">
+      <td colspan="5">
+        {% if c.messages %}
+        {% for m in c.messages %}
+          <div class="msg-{{ m.role }}"><strong>{{ m.role }}:</strong> {{ m.content }}</div>
+        {% endfor %}
+        {% else %}
+          <div style="color:var(--dim)">No messages</div>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  {% else %}
+    <tr><td colspan="5" style="color:var(--dim);text-align:center;padding:24px">No conversations</td></tr>
+  {% endif %}
+  </tbody>
+</table>
+<script>
+function toggleMsgs(id) {
+  var el = document.getElementById(id);
+  el.classList.toggle('open');
+}
+</script>
+{% endblock %}

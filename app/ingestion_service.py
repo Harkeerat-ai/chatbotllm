@@ -106,7 +106,46 @@ class IngestionService:
                 logger.debug("Failed to record ingest metrics")
 
         db.commit()
+        try:
+            from app.hybrid_retriever import invalidate_retriever
+            invalidate_retriever(brand.slug)
+        except Exception:
+            logger.debug("Failed to invalidate hybrid retriever for %s", brand.slug)
         return len(ids)
+
+    def _get_or_version_source(
+        self,
+        db: Session,
+        brand: models.Brand,
+        name: str,
+        source_type: str,
+    ) -> models.KnowledgeSource:
+        existing = (
+            db.query(models.KnowledgeSource)
+            .filter_by(brand_id=brand.id, name=name, is_active=True)
+            .order_by(models.KnowledgeSource.version.desc())
+            .first()
+        )
+        if existing:
+            existing.is_active = False
+            source = models.KnowledgeSource(
+                brand_id=brand.id,
+                name=name,
+                source_type=source_type,
+                version=existing.version + 1,
+                previous_source_id=existing.id,
+            )
+        else:
+            source = models.KnowledgeSource(
+                brand_id=brand.id,
+                name=name,
+                source_type=source_type,
+                version=1,
+            )
+        db.add(source)
+        db.commit()
+        db.refresh(source)
+        return source
 
     # ── Text ─────────────────────────────────────────────────────────────────
 
@@ -118,19 +157,13 @@ class IngestionService:
         content: str,
         metadata: dict | None = None,
     ) -> models.KnowledgeSource:
-        source = models.KnowledgeSource(
-            brand_id=brand.id,
-            name=source_name,
-            source_type="text",
-        )
-        db.add(source)
-        db.commit()
-        db.refresh(source)
+        source = self._get_or_version_source(db, brand, source_name, "text")
 
         chunks = list(chunk_text(content, settings.chunk_size, settings.chunk_overlap))
         count = self._upsert_chunks(db, brand, source, chunks, metadata)
         source.chunk_count = count
         db.commit()
+        from app.rag_service import clear_response_cache; clear_response_cache()
         return source
 
     # ── PDF ──────────────────────────────────────────────────────────────────
@@ -147,14 +180,7 @@ class IngestionService:
         except ImportError:
             raise RuntimeError("PyMuPDF is not installed. Run: pip install pymupdf")
 
-        source = models.KnowledgeSource(
-            brand_id=brand.id,
-            name=source_name,
-            source_type="pdf",
-        )
-        db.add(source)
-        db.commit()
-        db.refresh(source)
+        source = self._get_or_version_source(db, brand, source_name, "pdf")
 
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         all_chunks: list[str] = []
@@ -170,6 +196,7 @@ class IngestionService:
         )
         source.chunk_count = count
         db.commit()
+        from app.rag_service import clear_response_cache; clear_response_cache()
         return source
 
     # ── FAQ ──────────────────────────────────────────────────────────────────
@@ -181,14 +208,7 @@ class IngestionService:
         source_name: str,
         items: list[dict],
     ) -> models.KnowledgeSource:
-        source = models.KnowledgeSource(
-            brand_id=brand.id,
-            name=source_name,
-            source_type="faq",
-        )
-        db.add(source)
-        db.commit()
-        db.refresh(source)
+        source = self._get_or_version_source(db, brand, source_name, "faq")
 
         chunks = [
             f"Q: {item.get('question', '')}\nA: {item.get('answer', '')}"
@@ -237,14 +257,7 @@ class IngestionService:
         source_name: str,
         policies: list[dict],
     ) -> models.KnowledgeSource:
-        source = models.KnowledgeSource(
-            brand_id=brand.id,
-            name=source_name,
-            source_type="legal",
-        )
-        db.add(source)
-        db.commit()
-        db.refresh(source)
+        source = self._get_or_version_source(db, brand, source_name, "legal")
 
         chunks: list[str] = []
         custom_ids: list[str] = []
@@ -306,13 +319,7 @@ class IngestionService:
         The document ``id`` is used as the stable ChromaDB upsert key,
         making the pipeline fully idempotent.
         """
-        source = models.KnowledgeSource(
-            brand_id=brand.id,
-            name=source_name,
-            source_type="kb",
-        )
-        db.add(source)
-        db.commit()
+        source = self._get_or_version_source(db, brand, source_name, "kb")
         db.refresh(source)
 
         chunks: list[str] = []
@@ -364,12 +371,7 @@ class IngestionService:
         source_name: str,
         items: list[dict],
     ) -> models.KnowledgeSource:
-        source = models.KnowledgeSource(
-            brand_id=brand.id,
-            name=source_name,
-            source_type="page",
-        )
-        db.add(source)
+        source = self._get_or_version_source(db, brand, source_name, "page")
         db.flush()
 
         count = 0
