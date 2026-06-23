@@ -24,12 +24,16 @@ class HuggingFaceEmbeddingFunction(EmbeddingFunction[Documents]):
 
         texts = [input] if isinstance(input, str) else input
         client = InferenceClient(token=self.api_token or None)
-        return [
-            np.array(
+        embeddings = []
+        for text in texts:
+            emb = np.array(
                 client.feature_extraction(text, model=self.model), dtype=np.float32
             )
-            for text in texts
-        ]
+            # The API may return shape (1, embed_dim) for a single input
+            if emb.ndim == 2:
+                emb = emb[0]
+            embeddings.append(emb)
+        return embeddings
 
     @staticmethod
     def name() -> str:

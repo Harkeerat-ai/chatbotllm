@@ -30,9 +30,11 @@ class CrossEncoderONNX:
         self.model_inputs = {inp.name for inp in self.session.get_inputs()}
 
     def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
-        texts = [f"{q} [SEP] {d}" for q, d in pairs]
+        queries = [q for q, d in pairs]
+        documents = [d for q, d in pairs]
         inputs = self.tokenizer(
-            texts,
+            queries,
+            documents,
             padding=True,
             truncation=True,
             max_length=512,
@@ -47,7 +49,8 @@ class CrossEncoderONNX:
             feed["token_type_ids"] = inputs.get("token_type_ids", np.zeros_like(inputs["input_ids"])).astype(np.int64)
 
         outputs = self.session.run(["logits"], feed)
-        return outputs[0][:, 0].tolist()
+        logits = outputs[0][:, 0]
+        return (1 / (1 + np.exp(-logits))).tolist()
 
     def __call__(self, pairs: list[tuple[str, str]]) -> list[float]:
         return self.predict(pairs)

@@ -67,13 +67,13 @@ class BM25Index:
         return scores
 
 
-def _rrf(ranked_lists: list[list[int]], k: int = 60) -> list[float]:
+def _rrf(ranked_lists: list[list[int]], k: int = 60) -> dict[int, float]:
     rrf_scores: dict[int, float] = {}
     for ranked in ranked_lists:
         for rank, doc_idx in enumerate(ranked):
             rrf_scores[doc_idx] = rrf_scores.get(doc_idx, 0.0) + 1.0 / (k + rank + 1)
     max_score = max(rrf_scores.values()) if rrf_scores else 1.0
-    return [rrf_scores.get(i, 0.0) / max_score for i in range(len(ranked_lists[0]))]
+    return {idx: score / max_score for idx, score in rrf_scores.items()}
 
 
 class HybridRetriever:
@@ -115,27 +115,28 @@ class HybridRetriever:
         if not vec_docs:
             return []
 
-        scores: list[float]
         if self._bm25 and self._bm25.n_docs > 0:
             bm25_scores = self._bm25.score(query)
             all_docs_data = coll.get(include=["documents"])
             all_docs = all_docs_data.get("documents", []) or []
 
-            vec_doc_indices: list[int] = []
-            vec_doc_set = set(vec_docs)
-            for i, d in enumerate(all_docs):
-                if d in vec_doc_set:
-                    vec_doc_indices.append(len(vec_doc_indices))
-                else:
-                    vec_doc_indices.append(-1)
+            # Map each vector result to its position in all_docs (common index space)
+            vec_positions = []
+            for d in vec_docs:
+                try:
+                    vec_positions.append(all_docs.index(d))
+                except ValueError:
+                    vec_positions.append(-1)
 
+            vec_ranked = [idx for idx in vec_positions if idx >= 0][:top_k]
             bm25_ranked = sorted(range(self._bm25.n_docs), key=lambda i: bm25_scores[i], reverse=True)[:top_k]
-            vec_ranked = list(range(len(vec_docs)))
 
             rrf_scores = _rrf([vec_ranked, bm25_ranked])
+
             scored = [
-                (rrf_scores[i], vec_docs[i], vec_metas[i])
+                (rrf_scores.get(vec_positions[i], 0.0), vec_docs[i], vec_metas[i])
                 for i in range(len(vec_docs))
+                if vec_positions[i] >= 0
             ]
             scored.sort(key=lambda x: x[0], reverse=True)
             return [ScoredDoc(s, d, m) for s, d, m in scored]

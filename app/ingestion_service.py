@@ -127,6 +127,7 @@ class IngestionService:
             .first()
         )
         if existing:
+            old_source_id = existing.id
             existing.is_active = False
             source = models.KnowledgeSource(
                 brand_id=brand.id,
@@ -136,6 +137,7 @@ class IngestionService:
                 previous_source_id=existing.id,
             )
         else:
+            old_source_id = None
             source = models.KnowledgeSource(
                 brand_id=brand.id,
                 name=name,
@@ -145,6 +147,31 @@ class IngestionService:
         db.add(source)
         db.commit()
         db.refresh(source)
+
+        if old_source_id is not None:
+            try:
+                collection = get_collection(brand.slug)
+                old_chunks = (
+                    db.query(models.Chunk)
+                    .filter_by(brand_id=brand.id, source_id=old_source_id)
+                    .all()
+                )
+                if old_chunks:
+                    old_ids = [c.chroma_id for c in old_chunks]
+                    collection.delete(ids=old_ids)
+                    for c in old_chunks:
+                        db.delete(c)
+                    db.commit()
+                    logger.info(
+                        "Cleaned %d stale chunks from source %d (v%d) for brand '%s'",
+                        len(old_ids), old_source_id, existing.version, brand.slug,
+                    )
+            except Exception:
+                logger.exception(
+                    "Failed to clean stale chunks for brand '%s', source %d",
+                    brand.slug, old_source_id,
+                )
+
         return source
 
     # ── Text ─────────────────────────────────────────────────────────────────
@@ -302,6 +329,12 @@ class IngestionService:
             row.metadata_json = json.dumps(existing)
         db.commit()
 
+        collection = get_collection(brand.slug)
+        collection.update(
+            ids=custom_ids,
+            metadatas=[json.loads(r.metadata_json) for r in chunk_rows],
+        )
+
         source.chunk_count = count
         db.commit()
         return source
@@ -347,7 +380,7 @@ class IngestionService:
             custom_ids=custom_ids,
         )
 
-        # Patch per-chunk metadata into the SQLite mirror
+        # Patch per-chunk metadata into both SQLite and ChromaDB
         chunk_rows = (
             db.query(models.Chunk)
             .filter_by(source_id=source.id)
@@ -359,6 +392,12 @@ class IngestionService:
             existing.update(meta)
             row.metadata_json = json.dumps(existing)
         db.commit()
+
+        collection = get_collection(brand.slug)
+        collection.update(
+            ids=custom_ids,
+            metadatas=[json.loads(r.metadata_json) for r in chunk_rows],
+        )
 
         source.chunk_count = count
         db.commit()

@@ -15,6 +15,8 @@
   #toggle-btn:hover {{ transform: scale(1.08); }}
   #widget-box {{ display: none; width: 100%; height: 100%; flex-direction: column; background: {surface_color}; border: 1px solid {border_color}; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,.7); }}
   #widget-box.open {{ display: flex; }}
+  #minimize-btn {{ margin-left: auto; background: none; border: none; color: {text_dim_color}; font-size: 20px; cursor: pointer; padding: 0 6px; line-height: 1; transition: .15s; }}
+  #minimize-btn:hover {{ color: {text_color}; }}
   #header {{ display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: {bg_color}; border-bottom: 1px solid {border_color}; }}
   #header .brand-title {{ font-weight: 600; font-size: 15px; color: {text_color}; }}
   #header .brand-sub {{ font-size: 11px; color: {text_dim_color}; margin-top: -1px; }}
@@ -50,13 +52,15 @@
 </head>
 <body>
 <div id="rag-widget" class="bn">
-  <div id="widget-box" class="open">
+  <button id="toggle-btn">💬</button>
+  <div id="widget-box">
     <div id="header">
       {logo_html}
       <div>
         <div class="brand-title">{title}</div>
         <div class="brand-sub">{powered_by}</div>
       </div>
+      <button id="minimize-btn">—</button>
     </div>
     <div class="messages" id="messages">
       <div class="msg bot">{welcome_message}</div>
@@ -104,7 +108,6 @@
     addMsg("user", text);
     addTyping();
 
-    var ev = new EventSource?.(null);
     var xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/" + BRAND + "/chat/stream");
     xhr.setRequestHeader("Content-Type", "application/json");
@@ -116,7 +119,7 @@
     xhr.onprogress = function() {{
       var data = xhr.responseText.slice(lastIdx);
       lastIdx = xhr.responseText.length;
-      var lines = data.split("\\n").filter(Boolean);
+      var lines = data.split("\n").filter(Boolean);
       for (var i = 0; i < lines.length; i++) {{
         var line = lines[i];
         if (line.startsWith("data: ")) {{
@@ -134,7 +137,12 @@
             }} else if (d.answer) {{
               remTyping();
               answer = d.answer;
-              addMsg("bot", d.answer);
+              var botEl = msgId.querySelector(".msg.bot:last-child");
+              if (botEl && !botEl.classList.contains("typing-dots")) {{
+                botEl.textContent = d.answer;
+              }} else {{
+                addMsg("bot", d.answer);
+              }}
               if (d.sources && d.sources.length) {{
                 var s = document.createElement("div");
                 s.className = "src";
@@ -147,11 +155,11 @@
                 var fr = document.createElement("div");
                 fr.className = "feedback-row";
                 var up = document.createElement("button");
-                up.textContent = "\\u1f44d";
+                up.textContent = "\uD83D\uDC4D";
                 up.title = "{helpful}";
                 up.onclick = function() {{ feedback(mId, 1, fr); }};
                 var down = document.createElement("button");
-                down.textContent = "\\u1f44e";
+                down.textContent = "\uD83D\uDC4E";
                 down.title = "{not_helpful}";
                 down.onclick = function() {{ feedback(mId, -1, fr); }};
                 fr.appendChild(up);
@@ -175,6 +183,20 @@
     xhr.send(JSON.stringify({{ message: text, session_id: SESSION_ID, stream: true }}));
   }}
 
+  function toggleWidget(show) {{
+    var box = document.getElementById("widget-box");
+    var btn = document.getElementById("toggle-btn");
+    if (show) {{
+      box.classList.add("open");
+      btn.style.display = "none";
+    }} else {{
+      box.classList.remove("open");
+      btn.style.display = "flex";
+    }}
+  }}
+
+  document.getElementById("toggle-btn").addEventListener("click", function() {{ toggleWidget(true); }});
+  document.getElementById("minimize-btn").addEventListener("click", function() {{ toggleWidget(false); }});
   document.getElementById("send").addEventListener("click", send);
   document.getElementById("input").addEventListener("keydown", function(e) {{ if (e.key === "Enter") send(); }});
 

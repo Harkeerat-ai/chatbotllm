@@ -231,9 +231,7 @@ class RAGService:
         citations: list[dict] = []
         context = ""
 
-        TRACKING_KEYWORDS = {"order","track","delivery","shipment","dispatch","arrive","late","return","refund"}
-        is_tracking = bool(TRACKING_KEYWORDS.intersection(user_message.lower().split()))
-        effective_top_k = top_k if is_tracking else 1
+        effective_top_k = top_k
 
         try:
             from app.hybrid_retriever import get_hybrid_retriever
