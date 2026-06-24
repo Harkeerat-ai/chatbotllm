@@ -1,6 +1,7 @@
 from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Optional
+from urllib.parse import urlparse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
@@ -245,6 +246,16 @@ class CrawlRequest(BaseModel):
     max_pages: int = 10
     max_depth: int = 1
     same_domain_only: bool = True
+
+    @field_validator("url")
+    @classmethod
+    def validate_url_scheme_and_host(cls, v: str) -> str:
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("Only http and https URLs are allowed")
+        if not parsed.netloc:
+            raise ValueError("URL must have a valid host")
+        return v
 
 
 class IngestResponse(BaseModel):

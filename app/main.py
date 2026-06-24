@@ -638,9 +638,12 @@ async def ingest_faq(
 @app.post("/api/{brand_slug}/crawl", response_model=IngestResponse, tags=["Knowledge Base"], summary="Crawl a website and ingest its content")
 def crawl_website(brand_slug: str, req: CrawlRequest, db: Session = Depends(get_db)):
     brand = _get_brand(brand_slug, db)
-    source = crawler_service.crawl(
-        db, brand, req.url, req.max_pages, req.max_depth, req.same_domain_only
-    )
+    try:
+        source = crawler_service.crawl(
+            db, brand, req.url, req.max_pages, req.max_depth, req.same_domain_only
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return IngestResponse(
         source_id=source.id,
         source_name=source.name,

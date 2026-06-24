@@ -3,8 +3,10 @@ Crawler service — BFS website crawler for ingestion.
 """
 
 from __future__ import annotations
+import ipaddress
 import logging
 import re
+import socket
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -22,6 +24,25 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+def _validate_url_external(url: str) -> None:
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        raise ValueError("Crawling localhost is not allowed")
+    if host.startswith("169.254."):
+        raise ValueError("Crawling link-local addresses is not allowed")
+    allowed = getattr(settings, "allowed_crawl_domains", [])
+    if allowed and host in allowed:
+        return
+    try:
+        ip = socket.gethostbyname(host)
+        addr = ipaddress.ip_address(ip)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_unspecified:
+            raise ValueError("Crawling private or internal IPs is not allowed")
+    except socket.gaierror:
+        raise ValueError("Could not resolve host — crawling blocked")
+
+
 class CrawlerService:
     def crawl(
         self,
@@ -32,6 +53,7 @@ class CrawlerService:
         max_depth: int = 1,
         same_domain_only: bool = True,
     ) -> models.KnowledgeSource:
+        _validate_url_external(url)
         parsed_root = urlparse(url)
         root_domain = parsed_root.netloc
 

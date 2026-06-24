@@ -1,5 +1,6 @@
 import os
 from functools import lru_cache
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -39,6 +40,9 @@ class Settings(BaseSettings):
     # Crawler limits
     crawler_max_pages: int = 50
     crawler_timeout: int = 10
+    allowed_crawl_domains: list[str] = Field(
+        [], description="Domains allowed for crawling even if they resolve to private IPs"
+    )
 
     class Config:
         env_file = ".env"
