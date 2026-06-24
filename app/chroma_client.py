@@ -52,16 +52,36 @@ class KeepAliveEmbeddingFunction(EmbeddingFunction[Documents]):
 
     def __call__(self, input: Documents) -> Embeddings:
         texts = [input] if isinstance(input, str) else input
-        embeddings = []
-        for text in texts:
+        if not texts:
+            return []
+
+        try:
             r = requests.post(
-                f"{self.url}/api/embeddings",
-                json={"model": self.model_name, "prompt": text, "keep_alive": -1},
-                timeout=60,
+                f"{self.url}/api/embed",
+                json={"model": self.model_name, "input": texts, "keep_alive": -1},
+                timeout=120,
             )
             r.raise_for_status()
-            embeddings.append(np.array(r.json()["embedding"], dtype=np.float32))
-        return embeddings
+            data = r.json()
+        except requests.RequestException:
+            logger.warning(
+                "/api/embed failed, falling back to per-text /api/embeddings for %s",
+                self.model_name,
+                exc_info=True,
+            )
+            embeddings = []
+            for text in texts:
+                r = requests.post(
+                    f"{self.url}/api/embeddings",
+                    json={"model": self.model_name, "prompt": text, "keep_alive": -1},
+                    timeout=60,
+                )
+                r.raise_for_status()
+                embeddings.append(np.array(r.json()["embedding"], dtype=np.float32))
+            return embeddings
+
+        raw = data.get("embeddings", [])
+        return [np.array(emb, dtype=np.float32) for emb in raw]
 
     @staticmethod
     def name() -> str:
