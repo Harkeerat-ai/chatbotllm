@@ -15,6 +15,7 @@
 <div class="box">
   <h1>&#x2B21; Admin Login</h1>
   <form method="POST" action="/admin/login">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
     <label>Username</label>
     <input type="text" name="username" autofocus/>
     <label>Password</label>

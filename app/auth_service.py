@@ -4,6 +4,7 @@ Auth service — admin session authentication.
 
 from __future__ import annotations
 import logging
+from hmac import compare_digest
 
 from sqlalchemy.orm import Session
 
@@ -22,8 +23,8 @@ class AuthService:
             return verify_password(password, user.hashed_password)
         # Fallback to env-configured admin credentials
         return (
-            username == settings.admin_username
-            and password == settings.admin_password
+            compare_digest(username, settings.admin_username)
+            and compare_digest(password, settings.admin_password)
         )
 
     def ensure_admin_user(self, db: Session) -> None:

@@ -35,6 +35,7 @@ form.inline button:hover{text-decoration:underline}
 
 <h2>Create Brand</h2>
 <form class="create" method="POST" action="/admin/brands/create">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
   <label>Slug <input name="slug" placeholder="my-brand" required></label>
   <label>Name <input name="name" placeholder="My Brand" required></label>
   <label>Language <input name="language" placeholder="en" value="en"></label>
@@ -74,6 +75,7 @@ form.inline button:hover{text-decoration:underline}
   <div class="popup">
     <h3>Edit Brand</h3>
     <form method="POST" action="">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
       <label>Name <input name="name" id="edit_name" required></label>
       <label>Description <textarea name="description" id="edit_description"></textarea></label>
       <label>Language <input name="language" id="edit_language"></label>

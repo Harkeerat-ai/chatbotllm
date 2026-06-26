@@ -65,6 +65,11 @@ class BrandService:
         return WidgetConfig(**data)
 
     def update_widget_config(self, db: Session, brand_slug: str, updates: dict) -> WidgetConfig:
+        ALLOWED = {
+            "title", "welcome_message", "accent_color", "bg_color",
+            "logo_url", "width", "height", "position",
+            "show_think_fast", "input_placeholder",
+        }
         brand = db.query(models.Brand).filter_by(slug=brand_slug).first()
         if not brand:
             from fastapi import HTTPException
@@ -73,7 +78,7 @@ class BrandService:
             current = json.loads(brand.widget_config_json) if brand.widget_config_json else {}
         except (json.JSONDecodeError, TypeError):
             current = {}
-        current.update({k: v for k, v in updates.items() if v is not None})
+        current.update({k: v for k, v in updates.items() if v is not None and k in ALLOWED})
         brand.widget_config_json = json.dumps(current)
         db.commit()
         return WidgetConfig(**current)

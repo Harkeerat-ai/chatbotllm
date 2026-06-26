@@ -202,6 +202,11 @@ class IngestionService:
         source_name: str,
         file_bytes: bytes,
     ) -> models.KnowledgeSource:
+        MAX_PDF_BYTES = 50 * 1024 * 1024
+        if len(file_bytes) > MAX_PDF_BYTES:
+            raise ValueError(f"PDF exceeds maximum size of {MAX_PDF_BYTES // (1024*1024)} MB")
+        if file_bytes[:4] != b"%PDF":
+            raise ValueError("File is not a valid PDF (missing PDF header)")
         try:
             import fitz  # PyMuPDF
         except ImportError:

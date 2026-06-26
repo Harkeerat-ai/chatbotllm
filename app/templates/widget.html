@@ -25,6 +25,9 @@
   #messages .msg.user {{ align-self: flex-end; background: {user_bg_color}; color: {text_color}; border-bottom-right-radius: 4px; }}
   #messages .msg.bot {{ align-self: flex-start; background: {bot_bg_color}; color: {text_color}; border-bottom-left-radius: 4px; }}
   #messages .msg .src {{ font-size: 11px; color: {text_dim_color}; margin-top: 6px; }}
+  #messages .msg .page-links {{ margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }}
+  #messages .msg .page-link {{ display: inline-block; padding: 6px 12px; border-radius: 8px; background: {surface_color}; border: 1px solid {border_color}; color: {accent_color}; text-decoration: none; font-size: 13px; font-weight: 500; transition: .15s; }}
+  #messages .msg .page-link:hover {{ background: {accent_color}; color: #000; }}
   .chat-input {{ display: flex; gap: 8px; padding: 10px 14px; background: {bg_color}; border-top: 1px solid {border_color}; }}
   .chat-input input {{ flex: 1; padding: 10px 14px; border-radius: 10px; border: 1px solid {border_color}; background: {surface_color}; color: {text_color}; font-size: 14px; outline: none; font-family: 'IBM Plex Sans', sans-serif; }}
   .chat-input input:focus {{ border-color: {accent_color}; }}
@@ -149,6 +152,15 @@
                 s.textContent = "{sources} " + d.sources.join(", ");
                 var lastBot = msgId.querySelector(".msg.bot:last-child");
                 if (lastBot) lastBot.appendChild(s);
+              }}
+              if (d.urls && d.urls.length) {{
+                var links = document.createElement("div");
+                links.className = "page-links";
+                links.innerHTML = d.urls.map(function(u) {{
+                  return '<a href="' + u.url + '" target="_blank" class="page-link">' + u.title + '</a>';
+                }}).join("");
+                var lastBot = msgId.querySelector(".msg.bot:last-child");
+                if (lastBot) lastBot.appendChild(links);
               }}
               var mId = d.message_id;
               if (mId) {{

@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 def test_analytics_time_series_schema():
@@ -64,7 +64,7 @@ def test_get_detailed_with_events(db_session):
             event_type="chat",
             session_id=f"sess_{i}",
             payload_json=json.dumps({"latency_ms": 200 + i * 10, "query_len": 20}),
-            created_at=datetime.utcnow() - timedelta(hours=i),
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=i),
         )
         db_session.add(event)
 
@@ -73,7 +73,7 @@ def test_get_detailed_with_events(db_session):
         event_type="lead",
         session_id="lead_sess",
         payload_json="{}",
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     db_session.add(lead)
     db_session.commit()
@@ -98,7 +98,7 @@ def test_get_detailed_respects_days_window(db_session):
     old = models.AnalyticsEvent(
         brand_id=brand.id, event_type="chat",
         session_id="old", payload_json="{}",
-        created_at=datetime.utcnow() - timedelta(days=60),
+        created_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=60),
     )
     db_session.add(old)
     db_session.commit()

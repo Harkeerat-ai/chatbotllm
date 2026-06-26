@@ -5,7 +5,7 @@ Analytics service — event logging and summary queries.
 from __future__ import annotations
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -56,7 +56,7 @@ class AnalyticsService:
     def get_detailed(db: Session, brand: models.Brand, days: int = 30) -> dict[str, Any]:
         from sqlalchemy import func, cast, Date
 
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
 
         events = (
             db.query(models.AnalyticsEvent)

@@ -26,10 +26,10 @@ h2{font-family:var(--mono);font-size:.85rem;text-transform:uppercase;letter-spac
   <div class="box"><div class="label">ETA</div><div class="value">{{ eta }}</div></div>
 </div>
 
-<form method="POST" action="/admin/tracking/{{ shipment_id }}/refresh"><button type="submit">Refresh</button></form>
-<form method="POST" action="/admin/tracking/{{ shipment_id }}/recalculate-eta"><button type="submit">Recalculate ETA</button></form>
+<form method="POST" action="/admin/tracking/{{ shipment_id }}/refresh"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"/><button type="submit">Refresh</button></form>
+<form method="POST" action="/admin/tracking/{{ shipment_id }}/recalculate-eta"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"/><button type="submit">Recalculate ETA</button></form>
 <form method="POST" action="/admin/tracking/{{ shipment_id }}/override">
-  <select name="status">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
     {% for st in statuses %}
     <option value="{{ st.value }}"{% if st.selected %} selected{% endif %}>{{ st.label }}</option>
     {% endfor %}

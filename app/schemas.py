@@ -1,14 +1,23 @@
 from __future__ import annotations
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any, Generic, Optional, TypeVar
 from urllib.parse import urlparse
 from pydantic import BaseModel, EmailStr, Field, field_validator
+
+T = TypeVar("T")
+
+
+class Paginated(BaseModel, Generic[T]):
+    items: list[T]
+    total: int
+    page: int = Field(1, ge=1)
+    page_size: int = Field(20, ge=1, le=100)
 
 
 # ── Chat ────────────────────────────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
-    message: str = Field(description="User message text")
+    message: str = Field(description="User message text", max_length=4096)
     session_id: str = Field("default", description="Client-provided session identifier for conversation continuity")
     top_k: int = Field(10, description="Number of documents to retrieve from the knowledge base", ge=1, le=50)
     stream: bool = Field(False, description="If true, use SSE streaming response")

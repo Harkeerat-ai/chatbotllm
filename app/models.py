@@ -1,4 +1,8 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Date,
     ForeignKey, Boolean, Float, UniqueConstraint,
@@ -16,7 +20,7 @@ class Brand(Base):
     description = Column(Text, default="")
     widget_config_json = Column(Text, default="{}")
     language = Column(String(10), default="en")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     sources = relationship("KnowledgeSource", back_populates="brand", cascade="all, delete-orphan")
     conversations = relationship("Conversation", back_populates="brand", cascade="all, delete-orphan")
@@ -38,7 +42,7 @@ class ProductPage(Base):
     url = Column(Text, nullable=False)
     title = Column(String(256), default="")
     keywords = Column(Text, default="")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     brand = relationship("Brand", back_populates="product_pages")
 
@@ -55,7 +59,7 @@ class KnowledgeSource(Base):
     version = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
     previous_source_id = Column(Integer, ForeignKey("knowledge_sources.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     brand = relationship("Brand", back_populates="sources")
     chunks = relationship("Chunk", back_populates="source", cascade="all, delete-orphan")
@@ -71,7 +75,7 @@ class Chunk(Base):
     chroma_id = Column(String(128), unique=True, index=True)
     content = Column(Text, nullable=False)
     metadata_json = Column(Text, default="{}")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     brand = relationship("Brand", back_populates="chunks")
     source = relationship("KnowledgeSource", back_populates="chunks")
@@ -83,8 +87,8 @@ class Conversation(Base):
     id = Column(Integer, primary_key=True, index=True)
     brand_id = Column(Integer, ForeignKey("brands.id"), nullable=False)
     session_id = Column(String(128), index=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
     summary_json = Column(Text, default="{}")
 
     brand = relationship("Brand", back_populates="conversations")
@@ -102,7 +106,7 @@ class Message(Base):
     token_count = Column(Integer, default=0)
     latency_ms = Column(Integer, default=0)
     suggested_questions_json = Column(Text, default="[]")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     conversation = relationship("Conversation", back_populates="messages")
 
@@ -119,7 +123,7 @@ class Lead(Base):
     company = Column(String(128), default="")
     notes = Column(Text, default="")
     source = Column(String(64), default="widget")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     brand = relationship("Brand", back_populates="leads")
 
@@ -132,7 +136,7 @@ class AnalyticsEvent(Base):
     event_type = Column(String(64), index=True, nullable=False)  # chat | lead | custom
     session_id = Column(String(128), default="")
     payload_json = Column(Text, default="{}")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     brand = relationship("Brand", back_populates="analytics")
 
@@ -144,7 +148,7 @@ class User(Base):
     username = Column(String(64), unique=True, index=True, nullable=False)
     hashed_password = Column(String(256), nullable=False)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
 
 class ApiToken(Base):
@@ -156,7 +160,7 @@ class ApiToken(Base):
     brand_id = Column(Integer, ForeignKey("brands.id"), nullable=True)
     is_active = Column(Boolean, default=True)
     last_used_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
 
 class LogisticsProvider(Base):
@@ -169,8 +173,8 @@ class LogisticsProvider(Base):
     base_url = Column(Text, default="")
     api_key_env = Column(String(128), default="")
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
     hubs = relationship("HubMaster", back_populates="provider", cascade="all, delete-orphan")
     shipments = relationship("Shipment", back_populates="provider")
@@ -190,7 +194,7 @@ class HubMaster(Base):
     state = Column(String(96), default="")
     country = Column(String(96), default="India")
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     provider = relationship("LogisticsProvider", back_populates="hubs")
 
@@ -207,7 +211,7 @@ class HubRoute(Base):
     destination_hub_id = Column(Integer, ForeignKey("hub_master.id"), nullable=False)
     avg_transit_hours = Column(Integer, default=24)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     provider = relationship("LogisticsProvider")
     origin_hub = relationship("HubMaster", foreign_keys=[origin_hub_id])
@@ -227,8 +231,8 @@ class Order(Base):
     customer_phone_hash = Column(String(128), index=True, default="")
     order_status = Column(String(64), default="order_created")
     metadata_json = Column(Text, default="{}")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
     brand = relationship("Brand", back_populates="orders")
     shipments = relationship("Shipment", back_populates="order", cascade="all, delete-orphan")
@@ -258,8 +262,8 @@ class Shipment(Base):
     verification_required = Column(Boolean, default=False)
     last_provider_sync_at = Column(DateTime, nullable=True)
     metadata_json = Column(Text, default="{}")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
     brand = relationship("Brand", back_populates="shipments")
     order = relationship("Order", back_populates="shipments")
@@ -285,10 +289,10 @@ class TrackingEvent(Base):
     raw_provider_status = Column(String(128), default="")
     hub_id = Column(Integer, ForeignKey("hub_master.id"), nullable=True)
     location_text = Column(Text, default="")
-    event_timestamp = Column(DateTime, index=True, default=datetime.utcnow)
+    event_timestamp = Column(DateTime, index=True, default=_utcnow)
     provider_event_id = Column(String(128), default="")
     notes = Column(Text, default="")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     shipment = relationship("Shipment", back_populates="events")
     hub = relationship("HubMaster")
@@ -304,7 +308,7 @@ class TrackingCache(Base):
     shipment_id = Column(Integer, ForeignKey("shipments.id"), nullable=True)
     response_snapshot_json = Column(Text, default="{}")
     expires_at = Column(DateTime, index=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     brand = relationship("Brand")
     shipment = relationship("Shipment")
@@ -319,7 +323,7 @@ class ShipmentEta(Base):
     source = Column(String(64), default="fallback")  # provider | override | route_history | fallback
     confidence = Column(String(16), default="low")   # high | medium | low
     reason = Column(Text, default="")
-    calculated_at = Column(DateTime, default=datetime.utcnow)
+    calculated_at = Column(DateTime, default=_utcnow)
 
     shipment = relationship("Shipment", back_populates="etas")
 
@@ -335,7 +339,7 @@ class TrackingRequest(Base):
     lookup_value_hash = Column(String(128), index=True, default="")
     result_code = Column(String(64), index=True, default="")
     ip_hash = Column(String(128), index=True, default="")
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=_utcnow, index=True)
 
     brand = relationship("Brand", back_populates="tracking_requests")
 
@@ -351,7 +355,7 @@ class TrackingOverride(Base):
     previous_eta = Column(Date, nullable=True)
     new_eta = Column(Date, nullable=True)
     notes = Column(Text, default="")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     shipment = relationship("Shipment", back_populates="overrides")
 
@@ -365,7 +369,7 @@ class MessageFeedback(Base):
     session_id = Column(String(128), default="")
     rating = Column(Integer, nullable=False)
     feedback_text = Column(Text, default="")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
 
 class ConversationContext(Base):
@@ -378,7 +382,7 @@ class ConversationContext(Base):
     error_info_json = Column(Text, default="{}")
     retry_count = Column(Integer, default=0)
     expired_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
     conversation = relationship("Conversation", back_populates="context")

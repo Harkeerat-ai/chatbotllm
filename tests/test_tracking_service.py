@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy.orm import Session
@@ -45,7 +45,7 @@ def _setup_brand_and_shipment(db: Session):
         shipment_id="SHIP-TST-1001",
         tracking_number="TRK-TST-1001",
         current_status="in_transit",
-        eta_date=datetime.utcnow().date() + timedelta(days=2),
+        eta_date=datetime.now(timezone.utc).replace(tzinfo=None).date() + timedelta(days=2),
     )
     db.add(shipment)
     db.commit()
@@ -57,7 +57,7 @@ def _setup_brand_and_shipment(db: Session):
         normalized_status="in_transit",
         hub_id=hub.id,
         location_text="In transit from Test Hub",
-        event_timestamp=datetime.utcnow() - timedelta(hours=4),
+        event_timestamp=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=4),
         provider_event_id="evt-tst-001",
     )
     db.add(event)
@@ -125,7 +125,7 @@ class TestTrackingLookup:
 
     def test_lookup_rate_limited(self, db_session):
         brand, _ = _setup_brand_and_shipment(db_session)
-        window_start = datetime.utcnow() - timedelta(minutes=1)
+        window_start = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=1)
         for i in range(25):
             db_session.add(models.TrackingRequest(
                 brand_id=brand.id,

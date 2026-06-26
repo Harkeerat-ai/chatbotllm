@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -107,7 +107,7 @@ class ConversationStateMachine:
             db.commit()
             db.refresh(ctx)
         else:
-            if ctx.expired_at and datetime.utcnow() > ctx.expired_at:
+            if ctx.expired_at and datetime.now(timezone.utc).replace(tzinfo=None) > ctx.expired_at:
                 ConversationStateMachine.reset(db, ctx)
         return ctx
 
@@ -133,7 +133,7 @@ class ConversationStateMachine:
         if action in ("reset_context", "normal_rag"):
             ConversationStateMachine.reset(db, ctx)
         if new_state == "completed":
-            ctx.expired_at = datetime.utcnow() + CONTEXT_IDLE_TIMEOUT
+            ctx.expired_at = datetime.now(timezone.utc) + CONTEXT_IDLE_TIMEOUT
         elif new_state in ("error_terminal", "error_retryable"):
             pass
         db.commit()

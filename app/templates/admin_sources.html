@@ -39,6 +39,7 @@ form.inline button:hover{text-decoration:underline}
       <td>
         {% if s.is_active and s.can_rollback %}
         <form class="inline" method="POST" action="/admin/brands/{{ brand_slug }}/sources/{{ s.id }}/rollback">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
           <button type="submit" onclick="return confirm('Rollback to previous version?')">Rollback</button>
         </form>
         {% else %}
@@ -52,4 +53,11 @@ form.inline button:hover{text-decoration:underline}
   {% endif %}
   </tbody>
 </table>
+{% if total_pages > 1 %}
+<div style="display:flex;gap:12px;align-items:center;justify-content:center;margin-top:20px;font-size:.85rem">
+  {% if page > 1 %}<a href="?page={{ page-1 }}&page_size={{ page_size }}" style="color:var(--accent)">&laquo; Prev</a>{% endif %}
+  <span style="color:var(--dim)">Page {{ page }} of {{ total_pages }}</span>
+  {% if page < total_pages %}<a href="?page={{ page+1 }}&page_size={{ page_size }}" style="color:var(--accent)">Next &raquo;</a>{% endif %}
+</div>
+{% endif %}
 {% endblock %}

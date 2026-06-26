@@ -1,10 +1,16 @@
 import os
 from functools import lru_cache
-from pydantic import Field
+from pydantic import ConfigDict, Field
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     database_url: str = "sqlite:///./app.db"
     chroma_path: str = "./vector_db"
 
@@ -43,11 +49,6 @@ class Settings(BaseSettings):
     allowed_crawl_domains: list[str] = Field(
         [], description="Domains allowed for crawling even if they resolve to private IPs"
     )
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        extra = "ignore"
 
 
 @lru_cache()

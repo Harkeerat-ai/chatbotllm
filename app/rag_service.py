@@ -143,7 +143,7 @@ class RAGService:
             lookup_value, lookup_type, confidence = self._safe_extract_lookup(user_message)
 
             # Auto-trigger on explicit lookup token (e.g. TRK-..., KALP-1001)
-            if lookup_value and confidence >= 60:
+            if lookup_value and confidence >= 60 and not any(kw in user_message.lower() for kw in NAVIGATION_KEYWORDS):
                 logger.info(
                     "Auto-triggering tracking lookup for extracted value=%s (conf=%s)",
                     lookup_value, confidence,
@@ -699,6 +699,9 @@ class RAGService:
         state = ctx.state
 
         if state == "awaiting_lookup_value":
+            if any(kw in user_message.lower() for kw in NAVIGATION_KEYWORDS):
+                state_machine.reset(db, ctx)
+                return None
             lookup_value, lookup_type, confidence = tracking_service.extract_lookup_value_with_type(user_message)
             logger.debug(
                 "active await lookup extraction -> value=%s type=%s confidence=%s",
@@ -751,6 +754,9 @@ class RAGService:
             }
 
         elif state == "awaiting_verification":
+            if any(kw in user_message.lower() for kw in NAVIGATION_KEYWORDS):
+                state_machine.reset(db, ctx)
+                return None
             verification = user_message.strip()
             valid, msg = tracking_service.validate_verification(verification)
             if valid:
@@ -1135,7 +1141,7 @@ class RAGService:
 
             lookup_value, lookup_type, confidence = self._safe_extract_lookup(user_message)
 
-            if lookup_value and confidence >= 60:
+            if lookup_value and confidence >= 60 and not any(kw in user_message.lower() for kw in NAVIGATION_KEYWORDS):
                 result = await self._handle_new_tracking_intent(
                     db, brand, session_id, conv, ctx, user_message, history,
                     allow_unverified_tracking=allow_unverified_tracking,
@@ -1242,6 +1248,87 @@ class RAGService:
                 for d, m in zip(docs[:3], metas[:3])
                 if m.get("source_name")
             ]
+
+            # Product page lookup — only on explicit navigation intent
+            msg_lower = user_message.lower()
+            if any(kw in msg_lower for kw in NAVIGATION_KEYWORDS):
+                try:
+                    search_term = msg_lower
+                    for phrase in NAVIGATION_KEYWORDS:
+                        if phrase in msg_lower:
+                            search_term = msg_lower.split(phrase, 1)[1].strip().rstrip(".!?' ")
+                            break
+                    from sqlalchemy import or_
+                    search_words = [
+                        w for w in search_term.replace("'s", " ").split()
+                        if len(w) > 2
+                    ]
+                    page = (
+                        db.query(ProductPage)
+                        .filter(
+                            ProductPage.brand_id == brand.id,
+                            or_(
+                                ProductPage.keywords.ilike(f"%{search_term}%"),
+                                ProductPage.title.ilike(f"%{search_term}%"),
+                                *[ProductPage.keywords.ilike(f"%{w}%") for w in search_words],
+                            ),
+                        )
+                        .first()
+                    )
+                    if page:
+                        answer = f"You're now on the {page.title} product page."
+                        elapsed_ms = int((time.monotonic() - t0) * 1000)
+                        logger.info("Product page link: %s → %s (%.2fs)", page.title, page.url, elapsed_ms / 1000)
+                        yield f"data: {json.dumps({'answer': answer, 'session_id': session_id, 'latency_ms': elapsed_ms, 'urls': [{'title': page.title, 'url': page.url}], 'brand': brand.slug, 'sources': [], 'citations': []})}\n\n"
+                        return
+
+                    all_pages = (
+                        db.query(ProductPage)
+                        .filter(ProductPage.brand_id == brand.id)
+                        .all()
+                    )
+                    candidates = []
+                    for p in all_pages:
+                        candidates.append(p.title)
+                        for kw in p.keywords.split(","):
+                            candidates.append(kw.strip())
+                    candidates = [c for c in candidates if c]
+
+                    close = difflib.get_close_matches(search_term, candidates, n=1, cutoff=0.6)
+                    if not close:
+                        for w in search_words:
+                            close = difflib.get_close_matches(w, candidates, n=1, cutoff=0.6)
+                            if close:
+                                break
+
+                    if close:
+                        match = close[0]
+                        match_lower = match.lower()
+                        matched_page = next(
+                            (p for p in all_pages
+                             if match_lower in p.title.lower()
+                             or any(match_lower in kw.strip().lower() for kw in p.keywords.split(","))),
+                            None,
+                        )
+                        if matched_page:
+                            answer = (
+                                f"I couldn't find '{search_term}'. "
+                                f"Did you mean '{matched_page.title}'?"
+                            )
+                            elapsed_ms = int((time.monotonic() - t0) * 1000)
+                            yield f"data: {json.dumps({'answer': answer, 'session_id': session_id, 'latency_ms': elapsed_ms, 'urls': [{'title': matched_page.title, 'url': matched_page.url}], 'brand': brand.slug, 'sources': [], 'citations': []})}\n\n"
+                            return
+
+                    titles = [p.title for p in all_pages if p.title]
+                    answer = (
+                        f"I couldn't find a page for '{search_term}'. "
+                        f"Available pages: {', '.join(titles)}."
+                    )
+                    elapsed_ms = int((time.monotonic() - t0) * 1000)
+                    yield f"data: {json.dumps({'answer': answer, 'session_id': session_id, 'latency_ms': elapsed_ms, 'urls': [{'title': p.title, 'url': p.url} for p in all_pages if p.title], 'brand': brand.slug, 'sources': [], 'citations': []})}\n\n"
+                    return
+                except Exception:
+                    logger.debug("Product page lookup failed", exc_info=True)
         except Exception as e:
             logger.error("Chroma query FAILED in stream for %s: %s", brand.slug, e)
 

@@ -27,12 +27,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import threading
 import time
-from datetime import datetime
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
+
+import hashlib
+import html
+import secrets
 
 from fastapi import (
     FastAPI, Depends, HTTPException, Request, UploadFile, File, Form,
@@ -42,7 +48,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
+from limits import strategies as _rl_strategies, storage as _rl_storage, RateLimitItemPerMinute
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -61,7 +67,9 @@ from app.schemas import (
     TrackingLookupRequest, TrackingLookupResponse,
     TrackingAdminShipmentOut, TrackingSearchResponse,
     TrackingOverrideRequest, TrackingEtaResponse,
+    Paginated,
 )
+from app.api_auth import require_api_key, create_initial_api_key
 from app.services import (
     rag_service, ingestion_service, crawler_service,
     auth_service, analytics_service, brand_service,
@@ -104,55 +112,32 @@ tags_metadata = [
     {"name": "Feedback", "description": "Message feedback (thumbs up/down)."},
 ]
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
-
-app = FastAPI(
-    title="Agentic RAG Platform",
-    description=(
-        "Multi-brand RAG chatbot with order-tracking integration, SSE streaming, "
-        "hybrid search, conversation summarization, knowledge-base versioning, "
-        "and an embeddable chat widget."
-    ),
-    summary="Agentic RAG chatbot platform for multi-brand customer support.",
-    version="2.0.0",
-    contact={"name": "Support", "url": "https://example.com/support"},
-    license_info={"name": "MIT", "url": "https://opensource.org/licenses/MIT"},
-    openapi_tags=tags_metadata,
-)
-
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.session_secret,
-    max_age=3600,
-    https_only=True,
-    same_site="lax",
-)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def _rate_limit_key(request: Request) -> str:
+    """Use the real TCP connection IP (ignores spoofable X-Forwarded-For)."""
+    return request.client.host if request.client else "127.0.0.1"
 
 
-# ─── Startup ─────────────────────────────────────────────────────────────────
+limiter = Limiter(key_func=_rate_limit_key, default_limits=["60/minute"])
+
+# Manual rate limiter for chat endpoints (bypass slowapi async decorator bug)
+_chat_rate_limiter = _rl_strategies.FixedWindowRateLimiter(_rl_storage.MemoryStorage())
+_chat_rate_limit = RateLimitItemPerMinute(30)
+_suggestions_rate_limit = RateLimitItemPerMinute(60)
+_feedback_rate_limit = RateLimitItemPerMinute(30)
+
+
+# ─── Startup (lifespan) ──────────────────────────────────────────────────────
 
 _started = False
 _startup_error: str | None = None
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize DB, seed defaults and mark readiness.
-
-    This runs at application startup (TestClient triggers it), and records
-    any startup error in `_startup_error` so readiness checks can report it.
-    """
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Initialize DB, seed defaults and mark readiness."""
     global _started, _startup_error
     if _started:
+        yield
         return
     try:
         init_db()
@@ -169,6 +154,12 @@ async def startup_event():
             logger.warning("Using default admin_password — set ADMIN_PASSWORD in .env")
         if settings.session_secret == "replace-with-a-long-random-string":
             logger.warning("Using default session_secret — set SESSION_SECRET in .env")
+        api_key = create_initial_api_key(db)
+        if api_key:
+            logger.info("=" * 60)
+            logger.info("API key generated: %s...%s", api_key[:8], api_key[-4:])
+            logger.info("Store this key securely — it will not be shown again.")
+            logger.info("=" * 60)
         logger.info("Agentic RAG Platform initialized.")
         try:
             from app.rag_service import _get_reranker
@@ -178,7 +169,6 @@ async def startup_event():
         try:
             from app.ollama_client import ollama
 
-            # Verify Groq API key is valid (~0.5s).
             await ollama.warmup()
         except Exception:
             logger.exception("Failed to verify LLM API key", exc_info=True)
@@ -195,6 +185,52 @@ async def startup_event():
     except Exception as e:
         _startup_error = str(e)
         logger.exception("Startup failed: %s", e)
+    yield
+
+
+app = FastAPI(
+    title="Agentic RAG Platform",
+    description=(
+        "Multi-brand RAG chatbot with order-tracking integration, SSE streaming, "
+        "hybrid search, conversation summarization, knowledge-base versioning, "
+        "and an embeddable chat widget."
+    ),
+    summary="Agentic RAG chatbot platform for multi-brand customer support.",
+    version="2.0.0",
+    contact={"name": "Support", "url": "https://example.com/support"},
+    license_info={"name": "MIT", "url": "https://opensource.org/licenses/MIT"},
+    openapi_tags=tags_metadata,
+    lifespan=lifespan,
+)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    max_age=3600,
+    https_only=False,
+    same_site="lax",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-CSRF-Token"],
+)
+
+
+# ─── Security headers middleware ────────────────────────────────────────────────
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "0"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -218,8 +254,50 @@ _jinja_env = Environment(
 )
 
 
+
 def _load_template(name: str) -> str:
     return (TEMPLATES_DIR / name).read_text(encoding="utf-8")
+
+
+def _generate_csrf_token(request: Request) -> str:
+    from itsdangerous import URLSafeSerializer
+    if "csrf_secret" not in request.session:
+        request.session["csrf_secret"] = secrets.token_hex(16)
+    serializer = URLSafeSerializer(settings.session_secret, salt="csrf")
+    return serializer.dumps({"sid": request.session["csrf_secret"]})
+
+
+def _validate_csrf_token(request: Request, token: str) -> bool:
+    from itsdangerous import URLSafeSerializer, BadSignature
+    sid = request.session.get("csrf_secret", "")
+    if not sid:
+        return False
+    serializer = URLSafeSerializer(settings.session_secret, salt="csrf")
+    try:
+        data = serializer.loads(token)
+        return data.get("sid", "") == sid
+    except BadSignature:
+        return False
+
+
+def _check_csrf(request: Request, form: dict | None = None):
+    import json
+    token = (form or request.session).get("csrf_token", "")
+    session_csrf = request.session.get("csrf_secret", "")
+    logger.debug("CSRF_DEBUG token_present=%s token_len=%d session_csrf_present=%s session_keys=%s",
+        "yes" if token else "no", len(token) if token else 0,
+        "yes" if session_csrf else "no",
+        list(request.session.keys()))
+    if not _validate_csrf_token(request, token):
+        logger.debug("CSRF_DEBUG validation failed")
+        raise HTTPException(status_code=400, detail="Invalid or missing CSRF token")
+    logger.debug("CSRF_DEBUG validation OK")
+
+
+# Login lockout state
+_login_failures: dict[str, list[float]] = {}
+LOGIN_MAX_ATTEMPTS = 10
+LOGIN_LOCKOUT_SECONDS = 300
 
 
 # Background ingestion helpers
@@ -278,12 +356,12 @@ def global_health(db: Session = Depends(get_db)):
         "database": "connected" if db_ok else "error",
         "brand_count": brand_count,
         "version": "1.0.0",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
 @app.get("/metrics", tags=["System"], summary="Prometheus metrics scrape endpoint", include_in_schema=False)
-def metrics():
+def metrics(_: models.ApiToken = Depends(require_api_key)):
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -291,7 +369,7 @@ def metrics():
 def readiness():
     if _started:
         return {"ready": True}
-    return JSONResponse(status_code=503, content={"ready": False, "error": _startup_error or "starting"})
+    return JSONResponse(status_code=503, content={"ready": False})
 
 
 @app.get("/api/{brand_slug}/health", tags=["System"], summary="Per-brand health with chunk count")
@@ -308,8 +386,9 @@ def brand_health(brand_slug: str, db: Session = Depends(get_db)):
 # ─── Chat ─────────────────────────────────────────────────────────────────────
 
 @app.post("/api/{brand_slug}/chat", response_model=ChatResponse, tags=["Chat"], summary="Synchronous RAG chat")
-@limiter.limit("30/minute")
 async def chat(brand_slug: str, req: ChatRequest, request: Request, db: Session = Depends(get_db)):
+    if not _chat_rate_limiter.hit(_chat_rate_limit, _rate_limit_key(request)):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
     brand = _get_brand(brand_slug, db)
     allow_unverified_tracking = (
         req.allow_unverified_tracking
@@ -353,8 +432,9 @@ async def chat(brand_slug: str, req: ChatRequest, request: Request, db: Session 
 
 
 @app.post("/api/{brand_slug}/chat/stream", tags=["Chat"], summary="SSE streaming chat")
-@limiter.limit("30/minute")
 async def chat_stream(brand_slug: str, req: ChatRequest, request: Request, db: Session = Depends(get_db)):
+    if not _chat_rate_limiter.hit(_chat_rate_limit, _rate_limit_key(request)):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
     brand = _get_brand(brand_slug, db)
     allow_unverified_tracking = (
         req.allow_unverified_tracking
@@ -405,7 +485,7 @@ def capture_lead(brand_slug: str, request: Request, lead: LeadCreate, db: Sessio
 # ─── Analytics event ──────────────────────────────────────────────────────────
 
 @app.post("/api/{brand_slug}/event", tags=["Analytics"], summary="Log a custom analytics event")
-def track_event(brand_slug: str, event: EventCreate, db: Session = Depends(get_db)):
+def track_event(brand_slug: str, event: EventCreate, db: Session = Depends(get_db), _: models.ApiToken = Depends(require_api_key)):
     brand = _get_brand(brand_slug, db)
     AnalyticsService.log_event(db, brand.id, event.event_type, event.session_id, event.payload)
     return {"ok": True}
@@ -419,6 +499,7 @@ def tracking_lookup(
     req: TrackingLookupRequest,
     request: Request,
     db: Session = Depends(get_db),
+    _: models.ApiToken = Depends(require_api_key),
 ):
     brand = _get_brand(brand_slug, db)
     client_host = request.client.host if request.client else ""
@@ -539,6 +620,7 @@ def ingest_text(
     request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    _: models.ApiToken = Depends(require_api_key),
     background: bool = False,
 ):
     brand = _get_brand(brand_slug, db)
@@ -567,10 +649,16 @@ async def ingest_pdf(
     source_name: str = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    _: models.ApiToken = Depends(require_api_key),
     background: bool = False,
 ):
     brand = _get_brand(brand_slug, db)
+    MAX_PDF_BYTES = 50 * 1024 * 1024
+    if file.content_type and file.content_type != "application/pdf":
+        raise HTTPException(400, f"Unexpected content type: {file.content_type}")
     file_bytes = await file.read()
+    if len(file_bytes) > MAX_PDF_BYTES:
+        raise HTTPException(413, f"PDF exceeds maximum size of {MAX_PDF_BYTES // (1024*1024)} MB")
     if background:
         if background_tasks is None:
             raise HTTPException(500, "BackgroundTasks not available")
@@ -595,19 +683,27 @@ async def ingest_faq(
     file: UploadFile | None = File(None),
     payload: str | None = Form(None),
     db: Session = Depends(get_db),
+    _: models.ApiToken = Depends(require_api_key),
     background: bool = False,
 ):
     brand = _get_brand(brand_slug, db)
     source = None
 
     if file:
+        MAX_FAQ_BYTES = 10 * 1024 * 1024
         file_bytes = await file.read()
+        if len(file_bytes) > MAX_FAQ_BYTES:
+            raise HTTPException(413, f"FAQ file exceeds maximum size of {MAX_FAQ_BYTES // (1024*1024)} MB")
+        if file.content_type and file.content_type not in ("text/csv", "application/json", "text/plain", ""):
+            raise HTTPException(400, f"Unexpected content type: {file.content_type}")
         if background:
             if background_tasks is None:
                 raise HTTPException(500, "BackgroundTasks not available")
             background_tasks.add_task(_run_ingest_faq_background, brand_slug, source_name, file_bytes, None)
             return IngestResponse(source_id=0, source_name=source_name, chunk_count=0, message="Ingestion scheduled in background")
         fname = (file.filename or "").lower()
+        if not fname.endswith((".csv", ".json", ".jsn")):
+            raise HTTPException(400, "Only .csv or .json files are accepted")
         if fname.endswith(".csv"):
             source = ingestion_service.ingest_faq_csv(db, brand, source_name, file_bytes)
         else:
@@ -636,7 +732,7 @@ async def ingest_faq(
 # ─── Website crawler ──────────────────────────────────────────────────────────
 
 @app.post("/api/{brand_slug}/crawl", response_model=IngestResponse, tags=["Knowledge Base"], summary="Crawl a website and ingest its content")
-def crawl_website(brand_slug: str, req: CrawlRequest, db: Session = Depends(get_db)):
+def crawl_website(brand_slug: str, req: CrawlRequest, db: Session = Depends(get_db), _: models.ApiToken = Depends(require_api_key)):
     brand = _get_brand(brand_slug, db)
     try:
         source = crawler_service.crawl(
@@ -655,7 +751,7 @@ def crawl_website(brand_slug: str, req: CrawlRequest, db: Session = Depends(get_
 # ─── Conversation history ─────────────────────────────────────────────────────
 
 @app.get("/api/{brand_slug}/conversations/{session_id}", response_model=ConversationOut, tags=["Chat"], summary="Get conversation history")
-def get_conversation(brand_slug: str, session_id: str, db: Session = Depends(get_db)):
+def get_conversation(brand_slug: str, session_id: str, db: Session = Depends(get_db), _: models.ApiToken = Depends(require_api_key)):
     brand = _get_brand(brand_slug, db)
     conv = db.query(models.Conversation).filter_by(brand_id=brand.id, session_id=session_id).first()
     if not conv:
@@ -665,8 +761,17 @@ def get_conversation(brand_slug: str, session_id: str, db: Session = Depends(get
 
 
 @app.get("/api/{brand_slug}/suggestions/{message_id}", tags=["Chat"], summary="Get suggested follow-up questions for a message")
-def get_suggestions(brand_slug: str, message_id: int, db: Session = Depends(get_db)):
-    msg = db.query(models.Message).filter_by(id=message_id).first()
+def get_suggestions(brand_slug: str, message_id: int, request: Request, db: Session = Depends(get_db)):
+    if not _chat_rate_limiter.hit(_suggestions_rate_limit, _rate_limit_key(request)):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    brand = _get_brand(brand_slug, db)
+    msg = (
+        db.query(models.Message)
+        .filter_by(id=message_id)
+        .join(models.Conversation)
+        .filter(models.Conversation.brand_id == brand.id)
+        .first()
+    )
     if not msg:
         return {"suggestions": []}
     try:
@@ -682,12 +787,12 @@ def get_suggestions(brand_slug: str, message_id: int, db: Session = Depends(get_
 
 @app.get("/api/brands", response_model=list[BrandOut], tags=["Brands"], summary="List all brands")
 @app.get("/api/{brand_slug}/brands", response_model=list[BrandOut], tags=["Brands"], summary="List brands (by slug)")
-def list_brands(db: Session = Depends(get_db), brand_slug: str = "default"):
+def list_brands(db: Session = Depends(get_db), brand_slug: str = "default", _: models.ApiToken = Depends(require_api_key)):
     return brand_service.list_all(db)
 
 
 @app.post("/api/brands", response_model=BrandOut, tags=["Brands"], summary="Create a new brand")
-def create_brand(req: BrandCreate, db: Session = Depends(get_db)):
+def create_brand(req: BrandCreate, db: Session = Depends(get_db), _: models.ApiToken = Depends(require_api_key)):
     existing = db.query(models.Brand).filter_by(slug=req.slug).first()
     if existing:
         raise HTTPException(409, f"Brand '{req.slug}' already exists")
@@ -696,14 +801,23 @@ def create_brand(req: BrandCreate, db: Session = Depends(get_db)):
 
 # ─── Sources & leads ──────────────────────────────────────────────────────────
 
-@app.get("/api/{brand_slug}/sources", response_model=list[SourceOut], tags=["Knowledge Base"], summary="List all knowledge sources for a brand")
-def list_sources(brand_slug: str, db: Session = Depends(get_db)):
+@app.get("/api/{brand_slug}/sources", response_model=Paginated[SourceOut], tags=["Knowledge Base"], summary="List all knowledge sources for a brand")
+def list_sources(
+    brand_slug: str,
+    db: Session = Depends(get_db),
+    _: models.ApiToken = Depends(require_api_key),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
     brand = _get_brand(brand_slug, db)
-    return db.query(models.KnowledgeSource).filter_by(brand_id=brand.id).order_by(models.KnowledgeSource.created_at.desc()).all()
+    q = db.query(models.KnowledgeSource).filter_by(brand_id=brand.id).order_by(models.KnowledgeSource.created_at.desc())
+    total = q.count()
+    items = q.offset((page - 1) * page_size).limit(page_size).all()
+    return Paginated(items=items, total=total, page=page, page_size=page_size)
 
 
 @app.post("/api/{brand_slug}/knowledge/{source_id}/rollback", tags=["Knowledge Base"], summary="Roll back a knowledge source to its previous version")
-def rollback_source(brand_slug: str, source_id: int, db: Session = Depends(get_db)):
+def rollback_source(brand_slug: str, source_id: int, db: Session = Depends(get_db), _: models.ApiToken = Depends(require_api_key)):
     brand = _get_brand(brand_slug, db)
     source = db.query(models.KnowledgeSource).filter_by(id=source_id, brand_id=brand.id).first()
     if not source:
@@ -721,22 +835,31 @@ def rollback_source(brand_slug: str, source_id: int, db: Session = Depends(get_d
     return {"ok": True, "rolled_back_to": prev.id, "version": prev.version}
 
 
-@app.get("/api/{brand_slug}/leads", response_model=list[LeadOut], tags=["Leads"], summary="List captured leads")
-def list_leads(brand_slug: str, db: Session = Depends(get_db)):
+@app.get("/api/{brand_slug}/leads", response_model=Paginated[LeadOut], tags=["Leads"], summary="List captured leads")
+def list_leads(
+    brand_slug: str,
+    db: Session = Depends(get_db),
+    _: models.ApiToken = Depends(require_api_key),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
     brand = _get_brand(brand_slug, db)
-    return db.query(models.Lead).filter_by(brand_id=brand.id).order_by(models.Lead.created_at.desc()).all()
+    q = db.query(models.Lead).filter_by(brand_id=brand.id).order_by(models.Lead.created_at.desc())
+    total = q.count()
+    items = q.offset((page - 1) * page_size).limit(page_size).all()
+    return Paginated(items=items, total=total, page=page, page_size=page_size)
 
 
 # ─── Analytics summary ────────────────────────────────────────────────────────
 
 @app.get("/api/{brand_slug}/analytics", response_model=AnalyticsSummary, tags=["Analytics"], summary="Get analytics summary for a brand")
-def get_analytics(brand_slug: str, db: Session = Depends(get_db)):
+def get_analytics(brand_slug: str, db: Session = Depends(get_db), _: models.ApiToken = Depends(require_api_key)):
     brand = _get_brand(brand_slug, db)
     return analytics_service.get_summary(db, brand)
 
 
 @app.get("/api/{brand_slug}/analytics/detailed", response_model=AnalyticsDetailed, tags=["Analytics"], summary="Get detailed analytics with time-series")
-def get_analytics_detailed(brand_slug: str, days: int = 30, db: Session = Depends(get_db)):
+def get_analytics_detailed(brand_slug: str, days: int = 30, db: Session = Depends(get_db), _: models.ApiToken = Depends(require_api_key)):
     brand = _get_brand(brand_slug, db)
     return analytics_service.get_detailed(db, brand, days)
 
@@ -764,7 +887,7 @@ def admin_analytics(request: Request, days: int = 30, db: Session = Depends(get_
         ),
         brands_json=json.dumps(list(all_data.keys())),
         detailed_json=json.dumps(all_data),
-        year=datetime.utcnow().year,
+        year=datetime.now(timezone.utc).year,
     )
     return HTMLResponse(html)
 
@@ -778,10 +901,18 @@ def submit_feedback(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    if not _chat_rate_limiter.hit(_feedback_rate_limit, _rate_limit_key(request)):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
     brand = _get_brand(brand_slug, db)
     if req.rating not in (1, -1):
         raise HTTPException(400, "rating must be 1 (thumbs up) or -1 (thumbs down)")
-    msg = db.query(models.Message).filter_by(id=req.message_id).first()
+    msg = (
+        db.query(models.Message)
+        .filter_by(id=req.message_id)
+        .join(models.Conversation)
+        .filter(models.Conversation.brand_id == brand.id)
+        .first()
+    )
     if not msg:
         raise HTTPException(404, "Message not found")
     feedback = models.MessageFeedback(
@@ -803,7 +934,7 @@ def submit_feedback(
 # ─── Widget config ─────────────────────────────────────────────────────────────
 
 @app.get("/api/{brand_slug}/widget-config", response_model=WidgetConfig, tags=["Widget"], summary="Get widget configuration")
-def get_widget_config(brand_slug: str, db: Session = Depends(get_db)):
+def get_widget_config(brand_slug: str, db: Session = Depends(get_db), _: models.ApiToken = Depends(require_api_key)):
     _get_brand(brand_slug, db)
     return brand_service.get_widget_config(db, brand_slug)
 
@@ -826,9 +957,10 @@ def update_widget_config(brand_slug: str, cfg: WidgetConfig, request: Request, d
 def widget(brand_slug: str, db: Session = Depends(get_db)):
     brand = _get_brand(brand_slug, db)
     cfg = brand_service.get_widget_config(db, brand_slug)
-    logo_html = f'<img src="{cfg.logo_url}" alt="Logo" style="height:24px;border-radius:4px;">' if cfg.logo_url else ""
-    title_text = cfg.title or brand_slug
-    welcome = cfg.welcome_message or f"Hello! I'm the {brand_slug} assistant. Ask me anything."
+    safe_logo_url = html.escape(cfg.logo_url or "")
+    logo_html = f'<img src="{safe_logo_url}" alt="Logo" style="height:24px;border-radius:4px;">' if cfg.logo_url else ""
+    title_text = html.escape(cfg.title or brand_slug)
+    welcome = html.escape(cfg.welcome_message or f"Hello! I'm the {brand_slug} assistant. Ask me anything.")
     from app.prompts import get_widget_labels
     labels = get_widget_labels(getattr(brand, "language", "en"))
     return HTMLResponse(_load_template("widget.html").format(
@@ -880,7 +1012,7 @@ def widget_js():
 # Admin dashboard
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _admin_dashboard_html(db: Session, error: str = "") -> str:
+def _admin_dashboard_html(request: Request, db: Session, error: str = "") -> str:
     from app.chroma_client import collection_count
 
     brands = brand_service.list_all(db)
@@ -933,6 +1065,7 @@ def _admin_dashboard_html(db: Session, error: str = "") -> str:
         })
 
     return _jinja_env.get_template("admin_dashboard.html").render(
+        csrf_token=_generate_csrf_token(request),
         error=error,
         len_brands=len(brands),
         total_chunks=total_chunks,
@@ -948,7 +1081,7 @@ def _admin_dashboard_html(db: Session, error: str = "") -> str:
     )
 
 
-def _admin_tracking_html(db: Session, query: str = "", brand_slug: str = "") -> str:
+def _admin_tracking_html(request: Request, db: Session, query: str = "", brand_slug: str = "") -> str:
     brands = brand_service.list_all(db)
     selected_brand = None
     if brand_slug:
@@ -974,6 +1107,7 @@ def _admin_tracking_html(db: Session, query: str = "", brand_slug: str = "") -> 
     hub_list = [{"name": hub_name, "count": count} for hub_name, count in stats["common_hubs"]]
 
     return _jinja_env.get_template("admin_tracking.html").render(
+        csrf_token=_generate_csrf_token(request),
         search_query=query,
         brands=brands,
         brand_slug=brand_slug,
@@ -988,7 +1122,7 @@ def _admin_tracking_html(db: Session, query: str = "", brand_slug: str = "") -> 
     )
 
 
-def _admin_tracking_detail_html(db: Session, shipment: models.Shipment) -> str:
+def _admin_tracking_detail_html(request: Request, db: Session, shipment: models.Shipment) -> str:
     detail = tracking_service.shipment_to_admin_dict(db, shipment)
 
     statuses = (
@@ -1021,6 +1155,7 @@ def _admin_tracking_detail_html(db: Session, shipment: models.Shipment) -> str:
     next_hub = shipment.next_hub.hub_name if shipment.next_hub else "-"
 
     return _jinja_env.get_template("admin_tracking_detail.html").render(
+        csrf_token=_generate_csrf_token(request),
         shipment_id=shipment.id,
         brand_slug=shipment.brand.slug,
         order_id=shipment.order.order_id,
@@ -1042,8 +1177,8 @@ def _admin_tracking_detail_html(db: Session, shipment: models.Shipment) -> str:
 @app.get("/admin", response_class=HTMLResponse, tags=["Admin"], summary="Admin dashboard (or login page)")
 def admin_get(request: Request, db: Session = Depends(get_db)):
     if not request.session.get("admin_logged_in"):
-        return HTMLResponse(_jinja_env.get_template("admin_login.html").render(error=""))
-    return HTMLResponse(_admin_dashboard_html(db))
+        return HTMLResponse(_jinja_env.get_template("admin_login.html").render(csrf_token=_generate_csrf_token(request), error=""))
+    return HTMLResponse(_admin_dashboard_html(request, db))
 
 
 @app.get("/admin/tracking", response_class=HTMLResponse, tags=["Admin"], summary="Admin tracking search page")
@@ -1054,32 +1189,44 @@ def admin_tracking_get(
     db: Session = Depends(get_db),
 ):
     if not request.session.get("admin_logged_in"):
-        return HTMLResponse(_jinja_env.get_template("admin_login.html").render(error=""))
-    return HTMLResponse(_admin_tracking_html(db, query=q, brand_slug=brand))
+        return HTMLResponse(_jinja_env.get_template("admin_login.html").render(csrf_token=_generate_csrf_token(request), error=""))
+    return HTMLResponse(_admin_tracking_html(request, db, query=q, brand_slug=brand))
 
 
 @app.get("/admin/tracking/{shipment_id}", response_class=HTMLResponse, tags=["Admin"], summary="Admin shipment detail page")
 def admin_tracking_detail_get(
     shipment_id: int,
     request: Request,
+    brand_slug: str | None = Query(None, description="Filter by brand slug"),
     db: Session = Depends(get_db),
 ):
     if not request.session.get("admin_logged_in"):
-        return HTMLResponse(_jinja_env.get_template("admin_login.html").render(error=""))
-    shipment = db.query(models.Shipment).filter_by(id=shipment_id).first()
+        return HTMLResponse(_jinja_env.get_template("admin_login.html").render(csrf_token=_generate_csrf_token(request), error=""))
+    q = db.query(models.Shipment).filter_by(id=shipment_id)
+    if brand_slug:
+        brand = _get_brand(brand_slug, db)
+        q = q.filter(models.Shipment.brand_id == brand.id)
+    shipment = q.first()
     if not shipment:
         raise HTTPException(404, "Shipment not found")
-    return HTMLResponse(_admin_tracking_detail_html(db, shipment))
+    return HTMLResponse(_admin_tracking_detail_html(request, db, shipment))
 
 
 @app.post("/admin/tracking/{shipment_id}/refresh", tags=["Admin"], summary="Admin: refresh shipment")
-def admin_tracking_refresh(
+@limiter.limit("10/minute")
+async def admin_tracking_refresh(
     shipment_id: int,
     request: Request,
+    brand_slug: str | None = Query(None, description="Filter by brand slug"),
     db: Session = Depends(get_db),
 ):
     _require_admin(request)
-    shipment = tracking_service.refresh_shipment(db, shipment_id)
+    form = await request.form()
+    _check_csrf(request, form)
+    brand_id = None
+    if brand_slug:
+        brand_id = _get_brand(brand_slug, db).id
+    shipment = tracking_service.refresh_shipment(db, shipment_id, brand_id=brand_id)
     if not shipment:
         raise HTTPException(404, "Shipment not found")
     from fastapi.responses import RedirectResponse
@@ -1087,13 +1234,21 @@ def admin_tracking_refresh(
 
 
 @app.post("/admin/tracking/{shipment_id}/recalculate-eta", tags=["Admin"], summary="Admin: recalculate ETA")
-def admin_tracking_recalculate_eta(
+@limiter.limit("10/minute")
+async def admin_tracking_recalculate_eta(
     shipment_id: int,
     request: Request,
+    brand_slug: str | None = Query(None, description="Filter by brand slug"),
     db: Session = Depends(get_db),
 ):
     _require_admin(request)
-    shipment = db.query(models.Shipment).filter_by(id=shipment_id).first()
+    form = await request.form()
+    _check_csrf(request, form)
+    q = db.query(models.Shipment).filter_by(id=shipment_id)
+    if brand_slug:
+        brand = _get_brand(brand_slug, db)
+        q = q.filter(models.Shipment.brand_id == brand.id)
+    shipment = q.first()
     if not shipment:
         raise HTTPException(404, "Shipment not found")
     tracking_service.recalculate_eta(db, shipment, force=True)
@@ -1102,13 +1257,19 @@ def admin_tracking_recalculate_eta(
 
 
 @app.post("/admin/tracking/{shipment_id}/override", tags=["Admin"], summary="Admin: override shipment")
+@limiter.limit("10/minute")
 async def admin_tracking_override(
     shipment_id: int,
     request: Request,
+    brand_slug: str | None = Query(None, description="Filter by brand slug"),
     db: Session = Depends(get_db),
 ):
     _require_admin(request)
     form = await request.form()
+    _check_csrf(request, form)
+    brand_id = None
+    if brand_slug:
+        brand_id = _get_brand(brand_slug, db).id
     eta_text = str(form.get("eta") or "").strip()
     eta_value = datetime.strptime(eta_text, "%Y-%m-%d").date() if eta_text else None
     try:
@@ -1119,6 +1280,7 @@ async def admin_tracking_override(
             eta=eta_value,
             notes=str(form.get("notes") or ""),
             admin_username=request.session.get("admin_username", ""),
+            brand_id=brand_id,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
@@ -1147,14 +1309,16 @@ def admin_brands(request: Request, db: Session = Depends(get_db)):
     success = request.session.pop("success", "")
     error = request.session.pop("error", "")
     return HTMLResponse(_jinja_env.get_template("admin_brands.html").render(
-        brands=brand_rows, success=success, error=error,
+        csrf_token=_generate_csrf_token(request), brands=brand_rows, success=success, error=error,
     ))
 
 
 @app.post("/admin/brands/create", tags=["Admin"], summary="Admin brand create")
+@limiter.limit("5/minute")
 async def admin_brand_create(request: Request, db: Session = Depends(get_db)):
     _require_admin(request)
     form = await request.form()
+    _check_csrf(request, form)
     slug = str(form.get("slug", "")).strip()
     name = str(form.get("name", "")).strip()
     language = str(form.get("language", "en")).strip()
@@ -1175,10 +1339,12 @@ async def admin_brand_create(request: Request, db: Session = Depends(get_db)):
 
 
 @app.post("/admin/brands/{slug}/edit", tags=["Admin"], summary="Admin brand update")
+@limiter.limit("10/minute")
 async def admin_brand_edit(slug: str, request: Request, db: Session = Depends(get_db)):
     _require_admin(request)
     brand = _get_brand(slug, db)
     form = await request.form()
+    _check_csrf(request, form)
     name = str(form.get("name", "")).strip()
     language = str(form.get("language", "en")).strip()
     description = str(form.get("description", "")).strip()
@@ -1192,10 +1358,18 @@ async def admin_brand_edit(slug: str, request: Request, db: Session = Depends(ge
 
 
 @app.get("/admin/brands/{slug}/sources", response_class=HTMLResponse, tags=["Admin"], summary="Admin brand sources")
-def admin_brand_sources(slug: str, request: Request, db: Session = Depends(get_db)):
+def admin_brand_sources(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
     _require_admin(request)
     brand = _get_brand(slug, db)
-    sources = db.query(models.KnowledgeSource).filter_by(brand_id=brand.id).order_by(models.KnowledgeSource.created_at.desc()).all()
+    q = db.query(models.KnowledgeSource).filter_by(brand_id=brand.id).order_by(models.KnowledgeSource.created_at.desc())
+    total = q.count()
+    sources = q.offset((page - 1) * page_size).limit(page_size).all()
     source_rows = []
     for s in sources:
         source_rows.append({
@@ -1208,16 +1382,22 @@ def admin_brand_sources(slug: str, request: Request, db: Session = Depends(get_d
             "created_at": s.created_at.strftime("%Y-%m-%d %H:%M"),
             "can_rollback": bool(s.is_active and s.previous_source_id),
         })
+    total_pages = math.ceil(total / page_size)
     success = request.session.pop("success", "")
     error = request.session.pop("error", "")
     return HTMLResponse(_jinja_env.get_template("admin_sources.html").render(
+        csrf_token=_generate_csrf_token(request),
         brand_slug=slug, sources=source_rows, success=success, error=error,
+        page=page, total=total, total_pages=total_pages,
     ))
 
 
 @app.post("/admin/brands/{slug}/sources/{source_id}/rollback", tags=["Admin"], summary="Admin source rollback")
-def admin_source_rollback(slug: str, source_id: int, request: Request, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+async def admin_source_rollback(slug: str, source_id: int, request: Request, db: Session = Depends(get_db)):
     _require_admin(request)
+    form = await request.form()
+    _check_csrf(request, form)
     brand = _get_brand(slug, db)
     source = db.query(models.KnowledgeSource).filter_by(id=source_id, brand_id=brand.id).first()
     if not source:
@@ -1242,20 +1422,38 @@ def admin_source_rollback(slug: str, source_id: int, request: Request, db: Sessi
 
 
 @app.get("/admin/brands/{slug}/leads", response_class=HTMLResponse, tags=["Admin"], summary="Admin brand leads")
-def admin_brand_leads(slug: str, request: Request, db: Session = Depends(get_db)):
+def admin_brand_leads(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
     _require_admin(request)
-    _get_brand(slug, db)
-    leads = db.query(models.Lead).filter_by(brand_id=db.query(models.Brand).filter_by(slug=slug).first().id).order_by(models.Lead.created_at.desc()).all()
+    brand = _get_brand(slug, db)
+    q = db.query(models.Lead).filter_by(brand_id=brand.id).order_by(models.Lead.created_at.desc())
+    total = q.count()
+    leads = q.offset((page - 1) * page_size).limit(page_size).all()
+    total_pages = math.ceil(total / page_size)
     return HTMLResponse(_jinja_env.get_template("admin_leads.html").render(
-        brand_slug=slug, leads=leads,
+        csrf_token=_generate_csrf_token(request),
+        brand_slug=slug, leads=leads, page=page, total=total, total_pages=total_pages,
     ))
 
 
 @app.get("/admin/brands/{slug}/conversations", response_class=HTMLResponse, tags=["Admin"], summary="Admin brand conversations")
-def admin_brand_conversations(slug: str, request: Request, db: Session = Depends(get_db)):
+def admin_brand_conversations(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
     _require_admin(request)
     brand = _get_brand(slug, db)
-    convs = db.query(models.Conversation).filter_by(brand_id=brand.id).order_by(models.Conversation.created_at.desc()).all()
+    q = db.query(models.Conversation).filter_by(brand_id=brand.id).order_by(models.Conversation.created_at.desc())
+    total = q.count()
+    convs = q.offset((page - 1) * page_size).limit(page_size).all()
     conv_rows = []
     for c in convs:
         summary = ""
@@ -1272,27 +1470,41 @@ def admin_brand_conversations(slug: str, request: Request, db: Session = Depends
             "created_at": c.created_at.strftime("%Y-%m-%d %H:%M"),
             "messages": msgs,
         })
+    total_pages = math.ceil(total / page_size)
     return HTMLResponse(_jinja_env.get_template("admin_conversations.html").render(
-        brand_slug=slug, conversations=conv_rows,
+        csrf_token=_generate_csrf_token(request),
+        brand_slug=slug, conversations=conv_rows, page=page, total=total, total_pages=total_pages,
     ))
 
 
 @app.post("/admin/login", tags=["Admin"], summary="Admin login")
 @limiter.limit("5/minute")
 async def admin_login(request: Request, db: Session = Depends(get_db)):
+    client_ip = _rate_limit_key(request)
+    now = time.time()
+    recent = [t for t in _login_failures.get(client_ip, []) if t > now - LOGIN_LOCKOUT_SECONDS]
+    if len(recent) >= LOGIN_MAX_ATTEMPTS:
+        raise HTTPException(429, "Too many failed login attempts. Try again later.")
     form = await request.form()
+    _check_csrf(request, form)
     username = form.get("username", "")
     password = form.get("password", "")
     if auth_service.authenticate(db, username, password):
+        _login_failures.pop(client_ip, None)
+        request.session.clear()
         request.session["admin_logged_in"] = True
         request.session["admin_username"] = username
         from fastapi.responses import RedirectResponse
         return RedirectResponse("/admin", status_code=302)
-    return HTMLResponse(_jinja_env.get_template("admin_login.html").render(error="Invalid credentials"), status_code=401)
+    recent.append(now)
+    _login_failures[client_ip] = recent
+    return HTMLResponse(_jinja_env.get_template("admin_login.html").render(csrf_token=_generate_csrf_token(request), error="Invalid credentials"), status_code=401)
 
 
 @app.post("/admin/logout", tags=["Admin"], summary="Admin logout")
-def admin_logout(request: Request):
+async def admin_logout(request: Request):
+    form = await request.form()
+    _check_csrf(request, form)
     request.session.clear()
     from fastapi.responses import RedirectResponse
     return RedirectResponse("/admin", status_code=302)

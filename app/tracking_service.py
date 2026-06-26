@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import difflib
@@ -274,8 +274,11 @@ class TrackingService:
         )
         return response
 
-    def refresh_shipment(self, db: Session, shipment_id: int) -> models.Shipment | None:
-        shipment = db.query(models.Shipment).filter_by(id=shipment_id).first()
+    def refresh_shipment(self, db: Session, shipment_id: int, brand_id: int | None = None) -> models.Shipment | None:
+        q = db.query(models.Shipment).filter_by(id=shipment_id)
+        if brand_id is not None:
+            q = q.filter(models.Shipment.brand_id == brand_id)
+        shipment = q.first()
         if not shipment:
             return None
 
@@ -291,7 +294,7 @@ class TrackingService:
         if latest_event:
             self._apply_event_snapshot(db, shipment, latest_event)
 
-        shipment.last_provider_sync_at = datetime.utcnow()
+        shipment.last_provider_sync_at = datetime.now(timezone.utc).replace(tzinfo=None)
         db.commit()
         return shipment
 
@@ -301,7 +304,7 @@ class TrackingService:
         shipment: models.Shipment,
         force: bool = False,
     ) -> dict[str, Any]:
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).replace(tzinfo=None).date()
         latest_eta = (
             db.query(models.ShipmentEta)
             .filter_by(shipment_id=shipment.id)
@@ -381,8 +384,12 @@ class TrackingService:
         eta: date | None,
         notes: str,
         admin_username: str = "",
+        brand_id: int | None = None,
     ) -> models.Shipment | None:
-        shipment = db.query(models.Shipment).filter_by(id=shipment_id).first()
+        q = db.query(models.Shipment).filter_by(id=shipment_id)
+        if brand_id is not None:
+            q = q.filter(models.Shipment.brand_id == brand_id)
+        shipment = q.first()
         if not shipment:
             return None
 
@@ -392,7 +399,7 @@ class TrackingService:
 
         previous_status = shipment.current_status
         previous_eta = shipment.eta_date
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
 
         override = models.TrackingOverride(
             shipment_id=shipment.id,
@@ -703,7 +710,7 @@ class TrackingService:
         provider: models.LogisticsProvider,
         hubs: dict[str, models.HubMaster],
     ) -> None:
-        now = datetime.utcnow().replace(microsecond=0)
+        now = datetime.now(timezone.utc).replace(tzinfo=None).replace(microsecond=0)
         samples = {
             "biopharma": {
                 "order_id": "BIO-1001",
@@ -843,18 +850,6 @@ class TrackingService:
             if shipment:
                 return shipment, None
             if lookup_type == "tracking_number":
-                # Cross-brand fallback — the tracking number might belong to another brand
-                cross = (
-                    db.query(models.Shipment)
-                    .filter_by(tracking_number=normalized_lookup)
-                    .first()
-                )
-                if cross:
-                    logger.info(
-                        "Cross-brand tracking lookup: %s found in brand %s (requested brand %s)",
-                        normalized_lookup, cross.brand.slug, brand.slug,
-                    )
-                    return cross, None
                 return None, None
 
         order = (
@@ -944,7 +939,7 @@ class TrackingService:
             return
 
         hub = self._get_or_create_provider_hub(db, provider, payload)
-        event_timestamp = self._parse_datetime(payload.get("timestamp")) or datetime.utcnow()
+        event_timestamp = self._parse_datetime(payload.get("timestamp")) or datetime.now(timezone.utc).replace(tzinfo=None)
         provider_event_id = (
             str(payload.get("event_id") or "")
             or self._hash_lookup("event", shipment.tracking_number, f"{status}:{event_timestamp.isoformat()}")
@@ -1084,7 +1079,7 @@ class TrackingService:
         if not route:
             return None
         days = max(1, int((route.avg_transit_hours + 23) / 24) + 1)
-        return datetime.utcnow().date() + timedelta(days=days), (
+        return datetime.now(timezone.utc).replace(tzinfo=None).date() + timedelta(days=days), (
             f"Calculated from {route.origin_hub.hub_name} to {route.destination_hub.hub_name}"
         )
 
@@ -1287,7 +1282,7 @@ class TrackingService:
         session_id: str,
         lookup_hash: str,
     ) -> bool:
-        window_start = datetime.utcnow() - timedelta(minutes=1)
+        window_start = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=1)
         if session_id:
             session_count = (
                 db.query(models.TrackingRequest)
@@ -1318,7 +1313,7 @@ class TrackingService:
         lookup_type: str,
         lookup_hash: str,
     ) -> dict[str, Any] | None:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         cache = (
             db.query(models.TrackingCache)
             .filter(
@@ -1354,7 +1349,7 @@ class TrackingService:
             lookup_value_hash=lookup_hash,
             shipment_id=shipment_id,
             response_snapshot_json=json.dumps(response, default=str),
-            expires_at=datetime.utcnow() + ttl,
+            expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + ttl,
         ))
         db.commit()
 
@@ -1383,13 +1378,13 @@ class TrackingService:
     def _format_datetime(self, value: datetime | str) -> str:
         if isinstance(value, str):
             parsed = self._parse_datetime(value)
-            value = parsed or datetime.utcnow()
+            value = parsed or datetime.now(timezone.utc).replace(tzinfo=None)
         return value.strftime("%d %B %Y, %I:%M %p")
 
     def _format_date(self, value: date | datetime | str) -> str:
         if isinstance(value, str):
             parsed_date = self._parse_date(value)
-            value = parsed_date or datetime.utcnow().date()
+            value = parsed_date or datetime.now(timezone.utc).replace(tzinfo=None).date()
         if isinstance(value, datetime):
             value = value.date()
         return value.strftime("%d %B %Y")

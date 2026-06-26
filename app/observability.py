@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict
 
 try:
@@ -53,7 +53,7 @@ class JSONFormatter(logging.Formatter):
         }
 
         record_dict: Dict[str, object] = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
