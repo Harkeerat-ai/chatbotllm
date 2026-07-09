@@ -22,6 +22,7 @@ class ChatRequest(BaseModel):
     top_k: int = Field(10, description="Number of documents to retrieve from the knowledge base", ge=1, le=50)
     stream: bool = Field(False, description="If true, use SSE streaming response")
     allow_unverified_tracking: Optional[bool] = Field(None, description="Override the per-brand tracking verification setting")
+    language: str = Field("", description="User-selected language override (e.g. 'es', 'hi'). Empty = use brand default.")
 
     @field_validator("message")
     @classmethod

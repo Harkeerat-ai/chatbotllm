@@ -24,6 +24,7 @@ from app.conversation import state_machine, MAX_TRACKING_RETRIES
 from app.ollama_client import ollama
 from app.analytics_service import AnalyticsService
 from app.brand_service import brand_service
+from app.translations import get_text
 from app.utils import chunk_text, make_chroma_id, slugify
 
 logger = logging.getLogger(__name__)
@@ -111,7 +112,13 @@ class TrackingService:
         "track my package",
         "where my package",
     )
-    pending_lookup_phrase = "Please share your order ID or tracking number"
+    @staticmethod
+    def pending_lookup_phrase(language: str = "en") -> str:
+        return get_text("tracking.prompt.pending_lookup", language)
+
+    @staticmethod
+    def get_brand_language(brand: models.Brand) -> str:
+        return getattr(brand, "language", "en") or "en"
 
     def ensure_defaults(self, db: Session) -> None:
         """Create local brands, provider, hubs, routes, and demo shipments."""
@@ -170,25 +177,27 @@ class TrackingService:
         cache_key = f"{brand.slug}:{lookup_type}:{lookup_hash}"
         ip_hash = self._hash_lookup("ip", "ip", ip_address) if ip_address else ""
 
+        lang = self.get_brand_language(brand)
+
         if lookup_type not in {"auto", "order_id", "tracking_number"}:
             return self._record_and_error(
                 db, brand, session_id, source, lookup_type, lookup_hash, ip_hash,
                 "invalid_lookup_type",
-                "Please use either an order ID or a tracking number.",
+                get_text("tracking.validation.lookup.invalid_type", lang),
             )
 
         if not self.lookup_pattern.match(normalized_lookup):
             return self._record_and_error(
                 db, brand, session_id, source, lookup_type, lookup_hash, ip_hash,
                 "invalid_lookup_value",
-                "That does not look like a valid order ID or tracking number. Please check it and try again.",
+                get_text("tracking.validation.lookup.invalid_value", lang),
             )
 
         if self._is_rate_limited(db, brand, session_id, lookup_hash):
             return self._record_and_error(
                 db, brand, session_id, source, lookup_type, lookup_hash, ip_hash,
                 "rate_limited",
-                "Too many tracking attempts were made recently. Please wait a moment and try again.",
+                get_text("tracking.validation.lookup.too_many_attempts", lang),
                 retry_allowed=True,
             )
 
@@ -224,7 +233,7 @@ class TrackingService:
             return self._record_and_error(
                 db, brand, session_id, source, lookup_type, lookup_hash, ip_hash,
                 "not_found",
-                "I could not find a shipment for that order ID or tracking number.",
+                get_text("tracking.validation.not_found", lang),
             )
 
         if shipment.verification_required:
@@ -244,18 +253,17 @@ class TrackingService:
                     },
                 )
             else:
-                if not self._verify_customer(shipment, customer_verification):
-                    return self._record_and_error(
-                        db, brand, session_id, source, lookup_type, lookup_hash, ip_hash,
-                        "verification_required",
-                        "For privacy, please also provide the phone number or email used for the order.",
-                        requires_customer_verification=True,
-                    )
+                return self._record_and_error(
+                    db, brand, session_id, source, lookup_type, lookup_hash, ip_hash,
+                    "verification_required",
+                    get_text("tracking.prompt.verification_required", lang),
+                    requires_customer_verification=True,
+                )
 
         self.refresh_shipment(db, shipment.id)
         self.recalculate_eta(db, shipment, force=False)
 
-        response = self._build_lookup_response(db, brand, shipment)
+        response = self._build_lookup_response(db, brand, shipment, lang)
         _LOOKUP_CACHE[cache_key] = (response, shipment.id)
         self._cache_response(db, brand.id, lookup_type, lookup_hash, shipment.id, response)
         self._record_tracking_request(db, brand.id, session_id, source, lookup_type, lookup_hash, "success", ip_hash)
@@ -552,32 +560,35 @@ class TrackingService:
         compact = raw.replace(" ", "_")
         return compact if compact in TRACKING_STATUS_LABELS else raw
 
-    def status_label(self, status: str) -> str:
-        return TRACKING_STATUS_LABELS.get(status, status.replace("_", " ").title())
+    def status_label(self, status: str, language: str = "en") -> str:
+        label = get_text(f"tracking.status.{status}", language)
+        if label == f"tracking.status.{status}":
+            return status.replace("_", " ").title()
+        return label
 
-    def validate_order_id(self, value: str) -> tuple[bool, str]:
+    def validate_order_id(self, value: str, language: str = "en") -> tuple[bool, str]:
         if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,95}$", value):
-            return False, "The order ID contains invalid characters."
+            return False, get_text("tracking.validation.order_id.invalid_chars", language)
         if not re.search(r"\d", value):
-            return False, "The order ID should contain at least one digit."
+            return False, get_text("tracking.validation.order_id.no_digit", language)
         return True, ""
 
-    def validate_tracking_number(self, value: str) -> tuple[bool, str]:
+    def validate_tracking_number(self, value: str, language: str = "en") -> tuple[bool, str]:
         if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,95}$", value):
-            return False, "The tracking number contains invalid characters."
+            return False, get_text("tracking.validation.tracking_number.invalid_chars", language)
         if not re.search(r"\d", value):
-            return False, "The tracking number should contain at least one digit."
+            return False, get_text("tracking.validation.tracking_number.no_digit", language)
         return True, ""
 
-    def validate_verification(self, value: str) -> tuple[bool, str]:
+    def validate_verification(self, value: str, language: str = "en") -> tuple[bool, str]:
         stripped = value.strip().lower()
         if not stripped:
-            return False, "Please provide an email address or phone number."
+            return False, get_text("tracking.validation.verification.required", language)
         has_at = "@" in stripped and "." in stripped
         has_digits = re.search(r"\d", stripped)
         if has_at or (has_digits and len(stripped) >= 7):
             return True, ""
-        return False, "That doesn't look like a valid email or phone number."
+        return False, get_text("tracking.validation.verification.invalid", language)
 
     def infer_lookup_type(self, value: str) -> str:
         upper = value.upper()
@@ -910,7 +921,8 @@ class TrackingService:
                     shipment = db.query(models.Shipment).get(cached_row.shipment_id)
                     if shipment:
                         self.refresh_shipment(db, shipment.id)
-                        fresh = self._build_lookup_response(db, brand, shipment)
+                        language = self.get_brand_language(brand)
+                        fresh = self._build_lookup_response(db, brand, shipment, language)
                         _LOOKUP_CACHE[cache_key] = (fresh, shipment.id)
             finally:
                 db.close()
@@ -1088,6 +1100,7 @@ class TrackingService:
         db: Session,
         brand: models.Brand,
         shipment: models.Shipment,
+        language: str = "en",
     ) -> dict[str, Any]:
         events = (
             db.query(models.TrackingEvent)
@@ -1109,7 +1122,7 @@ class TrackingService:
             "shipment_id": shipment.shipment_id,
             "tracking_number": shipment.tracking_number,
             "shipment_status": shipment.current_status,
-            "status_label": self.status_label(shipment.current_status),
+            "status_label": self.status_label(shipment.current_status, language),
             "current_hub": self._hub_to_dict(shipment.current_hub),
             "previous_hub": self._hub_to_dict(shipment.previous_hub),
             "next_hub": self._hub_to_dict(shipment.next_hub),
@@ -1125,52 +1138,43 @@ class TrackingService:
             "retry_allowed": False,
             "requires_customer_verification": False,
         }
-        response["safe_response_text"] = self._build_safe_response_text(response)
+        response["safe_response_text"] = self._build_safe_response_text(response, language)
         return response
 
-    def _build_safe_response_text(self, response: dict[str, Any]) -> str:
+    def _build_safe_response_text(self, response: dict[str, Any], language: str = "en") -> str:
         status = response["shipment_status"]
-        status_label = response["status_label"]
         current_hub = response.get("current_hub")
         previous_hub = response.get("previous_hub")
         next_hub = response.get("next_hub")
 
         if status == "delivered":
-            headline = "Your shipment has been delivered successfully."
+            headline = get_text("tracking.safe.headline.delivered", language)
             lines = [headline]
             if response.get("delivered_on"):
-                lines.extend(["", "Delivered On:", self._format_date(response["delivered_on"])])
+                label = get_text("tracking.safe.label.delivered_on", language)
+                lines.extend(["", label, self._format_date(response["delivered_on"])])
             return "\n".join(lines)
 
         if status == "in_transit" and previous_hub and next_hub:
-            headline = (
-                f"Your shipment has departed from the {previous_hub['hub_name']} "
-                f"and is currently in transit to the {next_hub['hub_name']}."
-            )
+            template = get_text("tracking.safe.headline.in_transit", language)
+            headline = template.format(previous_hub=previous_hub["hub_name"], next_hub=next_hub["hub_name"])
         elif status in HUB_STATUSES and current_hub:
-            headline = f"Your order has reached the {current_hub['hub_name']}."
-        elif status == "out_for_delivery":
-            headline = "Your shipment is out for delivery."
-        elif status == "delayed":
-            headline = "Your shipment is taking longer than expected."
-        elif status == "failed_delivery":
-            headline = "Delivery was attempted, but it could not be completed."
-        elif status == "returned":
-            headline = "Your shipment is being returned."
-        elif status == "cancelled":
-            headline = "This shipment has been cancelled."
-        elif status == "picked_up":
-            headline = "Your shipment has been picked up."
+            template = get_text("tracking.safe.headline.arrived_hub", language)
+            headline = template.format(current_hub=current_hub["hub_name"])
         else:
-            headline = "Your shipment update is available."
+            headline = get_text(f"tracking.safe.headline.{status}", language)
 
-        lines = [headline, "", "Current Status:", status_label]
+        lines = [headline, "", get_text("tracking.safe.label.current_status", language), self.status_label(status, language)]
+
         if response.get("last_updated"):
-            lines.extend(["", "Last Updated:", self._format_datetime(response["last_updated"])])
+            label = get_text("tracking.safe.label.last_updated", language)
+            lines.extend(["", label, self._format_datetime(response["last_updated"])])
         if response.get("eta"):
-            lines.extend(["", "Estimated Delivery:", self._format_date(response["eta"])])
+            label = get_text("tracking.safe.label.estimated_delivery", language)
+            lines.extend(["", label, self._format_date(response["eta"])])
         if response.get("delay_reason"):
-            lines.extend(["", "Delay Reason:", response["delay_reason"]])
+            label = get_text("tracking.safe.label.delay_reason", language)
+            lines.extend(["", label, response["delay_reason"]])
         return "\n".join(lines)
 
     def _event_to_dict(self, event: models.TrackingEvent) -> dict[str, Any]:
@@ -1366,7 +1370,8 @@ class TrackingService:
         if not history:
             return False
         recent_assistant = [m for m in history[-4:] if m.get("role") == "assistant"]
-        return any(self.pending_lookup_phrase.lower() in m.get("content", "").lower() for m in recent_assistant)
+        pending = self.pending_lookup_phrase().lower()
+        return any(pending in m.get("content", "").lower() for m in recent_assistant)
 
     def _normalize_lookup_value(self, value: str) -> str:
         return value.strip().upper()

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{language}" dir="{direction}">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -51,6 +51,9 @@
   .typing-dots span:nth-child(1) {{ animation-delay: 0s; }}
   .typing-dots span:nth-child(2) {{ animation-delay: .2s; }}
   .typing-dots span:nth-child(3) {{ animation-delay: .4s; }}
+  #lang-select {{ background: none; border: 1px solid {border_color}; color: {text_dim_color}; border-radius: 6px; padding: 1px 4px; font-size: 11px; cursor: pointer; font-family: inherit; margin-left: 8px; }}
+  #lang-select:hover {{ border-color: {accent_color}; }}
+  #lang-select option {{ background: {bg_color}; color: {text_color}; }}
 </style>
 </head>
 <body>
@@ -63,10 +66,20 @@
         <div class="brand-title">{title}</div>
         <div class="brand-sub">{powered_by}</div>
       </div>
+      <select id="lang-select">
+        <option value="en">EN</option>
+        <option value="es">ES</option>
+        <option value="ar">AR</option>
+        <option value="hi">HI</option>
+        <option value="mr">MR</option>
+        <option value="ta">TA</option>
+        <option value="gu">GU</option>
+        <option value="pa">PA</option>
+      </select>
       <button id="minimize-btn">—</button>
     </div>
     <div class="messages" id="messages">
-      <div class="msg bot">{welcome_message}</div>
+      <div class="msg bot" id="welcome-msg">{welcome_message}</div>
     </div>
     <div class="chat-input">
       <input type="text" id="input" placeholder="{placeholder}" autocomplete="off"/>
@@ -78,6 +91,8 @@
 (function(){{
   var BRAND = "{brand}";
   var SESSION_ID = "sess_" + Date.now() + "_" + Math.random().toString(36).slice(2,8);
+  var ALL_LABELS = __ALL_LABELS_JSON__;
+  var CURRENT_LANG = localStorage.getItem("rag_lang_" + BRAND) || "{language}";
   var msgId = document.getElementById("messages");
 
   function addMsg(role, text, extra) {{
@@ -87,6 +102,28 @@
     if (extra) d.appendChild(extra);
     msgId.appendChild(d);
     msgId.scrollTop = msgId.scrollHeight;
+  }}
+
+  function getLabel(key) {{
+    var labels = ALL_LABELS[CURRENT_LANG] || ALL_LABELS["en"];
+    return labels[key] || key;
+  }}
+
+  function changeLanguage(lang) {{
+    CURRENT_LANG = lang;
+    localStorage.setItem("rag_lang_" + BRAND, lang);
+    var labels = ALL_LABELS[lang] || ALL_LABELS["en"];
+    document.documentElement.lang = lang;
+    document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+    document.getElementById("lang-select").value = lang;
+    document.getElementById("input").placeholder = labels.placeholder || "{placeholder}";
+    document.getElementById("send").textContent = labels.send || "{send}";
+    var w = document.getElementById("welcome-msg");
+    if (w) w.textContent = labels.welcome || w.textContent;
+    document.querySelectorAll(".feedback-row button").forEach(function(el) {{
+      var parent = el.closest(".feedback-row");
+      if (parent) parent.innerHTML = "";
+    }});
   }}
 
   function addTyping() {{
@@ -192,7 +229,7 @@
       remTyping();
     }};
 
-    xhr.send(JSON.stringify({{ message: text, session_id: SESSION_ID, stream: true }}));
+    xhr.send(JSON.stringify({{ message: text, session_id: SESSION_ID, stream: true, language: CURRENT_LANG }}));
   }}
 
   function toggleWidget(show) {{
@@ -211,6 +248,12 @@
   document.getElementById("minimize-btn").addEventListener("click", function() {{ toggleWidget(false); }});
   document.getElementById("send").addEventListener("click", send);
   document.getElementById("input").addEventListener("keydown", function(e) {{ if (e.key === "Enter") send(); }});
+  document.getElementById("lang-select").addEventListener("change", function(e) {{ changeLanguage(e.target.value); }});
+
+  // Initialize language from localStorage (overrides brand default)
+  if (CURRENT_LANG !== "{language}") {{
+    changeLanguage(CURRENT_LANG);
+  }}
 
   function feedback(msgId, rating, row) {{
     var xhr = new XMLHttpRequest();
@@ -218,7 +261,7 @@
     xhr.setRequestHeader("Content-Type", "application/json");
     xhr.onload = function() {{
       if (xhr.status === 200) {{
-        row.innerHTML = '<span class="feedback-thanks">' + (rating === 1 ? "{feedback_thanks}" : "{feedback_improve}") + '</span>';
+        row.innerHTML = '<span class="feedback-thanks">' + (rating === 1 ? getLabel("feedback_thanks") : getLabel("feedback_improve")) + '</span>';
       }}
     }};
     xhr.send(JSON.stringify({{ message_id: msgId, rating: rating, session_id: SESSION_ID }}));

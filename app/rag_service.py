@@ -17,6 +17,7 @@ from app.models import ProductPage
 from app.chroma_client import get_collection
 from app.cross_encoder_onnx import CrossEncoderONNX
 from app.prompts import get_prompt
+from app.translations import get_text
 
 # Module-level response cache — keyed by (brand, user_message, history_hash)
 _resp_cache: TTLCache = TTLCache(maxsize=256, ttl=3600)
@@ -66,7 +67,10 @@ def _get_reranker() -> CrossEncoderONNX:
 settings = get_settings()
 
 
-def _resolve_language(brand: models.Brand) -> str:
+def _resolve_language(brand: models.Brand, user_lang: str = "") -> str:
+    from app.translations import SUPPORTED_LANGUAGES
+    if user_lang and user_lang in SUPPORTED_LANGUAGES:
+        return user_lang
     lang = getattr(brand, "language", None)
     return lang or settings.default_language
 
@@ -80,6 +84,7 @@ class RAGService:
         user_message: str,
         top_k: int | None = None,
         allow_unverified_tracking: bool = False,
+        language: str = "",
     ) -> dict[str, Any]:
         if top_k is None:
             top_k = settings.default_top_k
@@ -126,7 +131,7 @@ class RAGService:
 
         # 4. State-machine-driven tracking flow
         ctx = state_machine.get_context(db, conv.id)
-        _lang = _resolve_language(brand)
+        _lang = _resolve_language(brand, language)
 
         try:
             if state_machine.is_tracking_active(ctx):
@@ -135,6 +140,7 @@ class RAGService:
                     allow_unverified_tracking=allow_unverified_tracking,
                     pending_messages=pending_messages,
                     product_urls=product_urls,
+                    language=language,
                 )
                 if result:
                     return result
@@ -153,6 +159,7 @@ class RAGService:
                     allow_unverified_tracking=allow_unverified_tracking,
                     pending_messages=pending_messages,
                     product_urls=product_urls,
+                    language=language,
                 )
                 if result:
                     return result
@@ -168,6 +175,7 @@ class RAGService:
                         allow_unverified_tracking=allow_unverified_tracking,
                         pending_messages=pending_messages,
                         product_urls=product_urls,
+                    language=language,
                     )
                     if result:
                         return result
@@ -178,10 +186,8 @@ class RAGService:
             )
             state_machine.reset(db, ctx)
 
-            answer = (
-                "I'm having trouble accessing the tracking system right now. "
-                "Please try again later or provide your order ID or tracking number and I'll retry."
-            )
+            lang = _resolve_language(brand, language)
+            answer = get_text("tracking.prompt.flow_failed", lang)
             latency_ms = int((time.monotonic() - t0) * 1000)
             asst_msg = models.Message(
                 conversation_id=conv.id,
@@ -213,6 +219,7 @@ class RAGService:
         blocked = self._block_rag_for_tracking(
             db, brand, session_id, conv, user_message, history, pending_messages, t0,
             product_urls=product_urls,
+                language=language,
         )
         if blocked:
             return blocked
@@ -309,7 +316,7 @@ class RAGService:
                         .first()
                     )
                     if page:
-                        answer = f"You're now on the {page.title} product page."
+                        answer = get_text("rag.nav_on_page", _lang).format(title=page.title)
                         elapsed_ms = int((time.monotonic() - t0) * 1000)
                         logger.info("Product page link: %s → %s (%.2fs)", page.title, page.url, elapsed_ms / 1000)
                         return {
@@ -350,9 +357,8 @@ class RAGService:
                             None,
                         )
                         if matched_page:
-                            answer = (
-                                f"I couldn't find '{search_term}'. "
-                                f"Did you mean '{matched_page.title}'?"
+                            answer = get_text("rag.nav_not_found_suggest", _lang).format(
+                                search_term=search_term, matched_page=matched_page.title,
                             )
                             elapsed_ms = int((time.monotonic() - t0) * 1000)
                             return {
@@ -365,9 +371,8 @@ class RAGService:
                             }
 
                     titles = [p.title for p in all_pages if p.title]
-                    answer = (
-                        f"I couldn't find a page for '{search_term}'. "
-                        f"Available pages: {', '.join(titles)}."
+                    answer = get_text("rag.nav_not_found_list", _lang).format(
+                        search_term=search_term, titles=", ".join(titles),
                     )
                     elapsed_ms = int((time.monotonic() - t0) * 1000)
                     return {
@@ -414,10 +419,7 @@ class RAGService:
                 col_count,
             )
 
-            answer = (
-                "I don't have relevant information in the knowledge base to answer that question. "
-                "You can provide more details or try a different question."
-            )
+            answer = get_text("rag.no_results", _lang)
             latency_ms = int((time.monotonic() - t0) * 1000)
             asst_msg = models.Message(
                 conversation_id=conv.id,
@@ -455,7 +457,7 @@ class RAGService:
         llm_messages = history + [{"role": "user", "content": user_message}]
 
         # 7. Generate answer
-        _lang = _resolve_language(brand)
+        _lang = _resolve_language(brand, language)
         system_prompt = get_prompt("system", _lang).format(brand_name=brand.name)
         if _lang != "en":
             system_prompt += f" Respond in {_lang}."
@@ -530,6 +532,7 @@ class RAGService:
         pending_messages: list[models.Message],
         t0: float,
         product_urls: list[dict] | None = None,
+        language: str = "",
     ) -> dict[str, Any] | None:
         """Prevent tracking queries from falling through to FAQ RAG."""
         try:
@@ -542,20 +545,18 @@ class RAGService:
                     "Detected tracking intent without lookup value for brand %s — prompting user for ID",
                     brand.slug,
                 )
-                answer = (
-                    f"{tracking_service.pending_lookup_phrase}. "
-                    "Please provide your order ID or tracking number and I will look it up."
-                )
+                lang = _resolve_language(brand, language)
+                answer = get_text("tracking.prompt.provide_id", lang)
                 intent = "tracking_prompt"
             else:
                 logger.warning(
                     "Tracking signal with value=%s (conf=%s) fell through for brand %s — blocking RAG fallback",
                     lookup_value, confidence, brand.slug,
                 )
+                lang = _resolve_language(brand, language)
                 answer = (
                     f"I see you're asking about {lookup_value}. "
-                    "I'm having trouble accessing the tracking system right now. "
-                    "Please try again shortly."
+                    f"{get_text('tracking.prompt.tracking_blocked', lang)}"
                 )
                 intent = "tracking_blocked_rag"
 
@@ -605,6 +606,7 @@ class RAGService:
         allow_unverified_tracking: bool = False,
         pending_messages: list[models.Message] | None = None,
         product_urls: list[dict] | None = None,
+        language: str = "",
     ) -> dict | None:
         logger.debug("_handle_new_tracking_intent called with message=%s", user_message)
         lookup_value, lookup_type, confidence = tracking_service.extract_lookup_value_with_type(user_message)
@@ -660,13 +662,12 @@ class RAGService:
                 tracking_result, lookup_value, lookup_type, history, t0,
                 pending_messages=pending_messages,
                 product_urls=product_urls,
+                language=language,
             )
 
         new_state, action = state_machine.apply_transition(db, ctx, "intent_detected_no_value")
-        answer = (
-            f"{tracking_service.pending_lookup_phrase}. "
-            "You can send either one, and I will check the shipment status."
-        )
+        lang = _resolve_language(brand, language)
+        answer = get_text("tracking.prompt.no_value", lang)
         asst_msg = models.Message(
             conversation_id=conv.id,
             role="assistant", content=answer,
@@ -693,6 +694,7 @@ class RAGService:
         allow_unverified_tracking: bool = False,
         pending_messages: list[models.Message] | None = None,
         product_urls: list[dict] | None = None,
+        language: str = "",
     ) -> dict | None:
         logger.debug("_handle_active_tracking state=%s message=%s", ctx.state, user_message)
         t0 = time.monotonic()
@@ -723,21 +725,19 @@ class RAGService:
                     tracking_result, lookup_value, lookup_type, history, t0,
                     pending_messages=pending_messages,
                     product_urls=product_urls,
+                    language=language,
                 )
 
             retry_count = state_machine.increment_retry(ctx)
+            lang = _resolve_language(brand, language)
             if retry_count >= MAX_TRACKING_RETRIES:
                 state_machine.apply_transition(db, ctx, "invalid_value_terminal")
-                answer = (
-                    "We've tried several times but couldn't find a valid order ID or tracking number. "
-                    "Please contact customer support for assistance with your order."
-                )
+                answer = get_text("tracking.prompt.invalid_value_terminal", lang)
             else:
                 state_machine.apply_transition(db, ctx, "invalid_value_retryable")
-                answer = (
-                    f"I couldn't find a valid order ID or tracking number in your message. "
-                    f"Please share your order ID (e.g., BIO-1001) or tracking number (e.g., TRK-BIO-1001) "
-                    f"so I can look up your shipment. (Attempt {retry_count}/{MAX_TRACKING_RETRIES})"
+                answer = get_text("tracking.prompt.invalid_value_retry", lang).format(
+                    retry_count=retry_count,
+                    max_retries=MAX_TRACKING_RETRIES,
                 )
             asst_msg = models.Message(
                 conversation_id=conv.id,
@@ -758,7 +758,8 @@ class RAGService:
                 state_machine.reset(db, ctx)
                 return None
             verification = user_message.strip()
-            valid, msg = tracking_service.validate_verification(verification)
+            lang = _resolve_language(brand, language)
+            valid, msg = tracking_service.validate_verification(verification, lang)
             if valid:
                 state_machine.set_slot(ctx, "verification", verification)
                 state_machine.apply_transition(db, ctx, "verification_provided")
@@ -777,6 +778,7 @@ class RAGService:
                     tracking_result, lookup_value, lookup_type, history, t0,
                     pending_messages=pending_messages,
                     product_urls=product_urls,
+                    language=language,
                 )
             state_machine.apply_transition(db, ctx, "verification_invalid")
             answer = msg + " Please try again."
@@ -807,12 +809,13 @@ class RAGService:
                     db, brand, session_id, conv, ctx, user_message, history,
                     allow_unverified_tracking=allow_unverified_tracking,
                     pending_messages=pending_messages,
+                    language=language,
                 )
             if is_follow_up:
                 state_machine.apply_transition(db, ctx, "follow_up_same_shipment")
                 tracking_data = state_machine.get_slot(ctx, "tracking_data", {})
                 if tracking_data:
-                    answer = await self._generate_nlp_tracking_response(brand, tracking_data, history)
+                    answer = await self._generate_nlp_tracking_response(brand, tracking_data, history, language=language)
                 else:
                     answer = "I don't have the previous tracking details anymore. Feel free to ask for a new tracking update."
                 state_machine.apply_transition(db, ctx, "response_ready")
@@ -837,17 +840,15 @@ class RAGService:
             is_tracking = tracking_service.should_handle_chat(user_message, history) or "yes" in text
             if is_tracking and state == "error_retryable":
                 retry_count = state_machine.increment_retry(ctx)
+                lang = _resolve_language(brand, language)
                 if retry_count >= MAX_TRACKING_RETRIES:
                     state_machine.apply_transition(db, ctx, "retries_exhausted")
-                    answer = (
-                        "We've tried several times but couldn't complete the tracking lookup. "
-                        "Please contact customer support for assistance."
-                    )
+                    answer = get_text("tracking.prompt.retry_exhausted", lang)
                 else:
                     state_machine.apply_transition(db, ctx, "user_retries")
-                    answer = (
-                        f"Let's try again. Please share your order ID or tracking number. "
-                        f"(Attempt {retry_count}/{MAX_TRACKING_RETRIES})"
+                    answer = get_text("tracking.prompt.retry_attempt", lang).format(
+                        retry_count=retry_count,
+                        max_retries=MAX_TRACKING_RETRIES,
                     )
                 asst_msg = models.Message(
                     conversation_id=conv.id,
@@ -868,6 +869,7 @@ class RAGService:
                     db, brand, session_id, conv, ctx, user_message, history,
                     allow_unverified_tracking=allow_unverified_tracking,
                     pending_messages=pending_messages,
+                    language=language,
                 )
             state_machine.reset(db, ctx)
             return None
@@ -879,6 +881,7 @@ class RAGService:
                     db, brand, session_id, conv, ctx, user_message, history,
                     allow_unverified_tracking=allow_unverified_tracking,
                     pending_messages=pending_messages,
+                    language=language,
                 )
             state_machine.reset(db, ctx)
             return None
@@ -899,6 +902,7 @@ class RAGService:
         t0: float,
         pending_messages: list[models.Message] | None = None,
         product_urls: list[dict] | None = None,
+        language: str = "",
     ) -> dict:
         logger.debug("_finalize_tracking received tracking_result keys=%s", list(tracking_result.keys()))
         success = tracking_result.get("success", False)
@@ -920,10 +924,7 @@ class RAGService:
 
             answer = tracking_result.get("safe_response_text", "")
             if error_code == "verification_required":
-                answer = (
-                    "For privacy, I need to verify your identity. "
-                    "Please provide the email address or phone number used on this order."
-                )
+                answer = get_text("tracking.prompt.verification_needed", lang)
 
             asst_msg = models.Message(
                 conversation_id=conv.id,
@@ -950,7 +951,7 @@ class RAGService:
         state_machine.set_slot(ctx, "lookup_type", lookup_type)
         state_machine.set_slot(ctx, "tracking_data", tracking_data)
 
-        answer = await self._generate_nlp_tracking_response(brand, tracking_data, history)
+        answer = await self._generate_nlp_tracking_response(brand, tracking_data, history, language=language)
         logger.debug("Generated tracking NLP answer (len=%d)", len(answer) if answer else 0)
         state_machine.apply_transition(db, ctx, "response_ready")
 
@@ -994,8 +995,9 @@ class RAGService:
         brand: models.Brand,
         tracking_data: dict[str, Any],
         history: list[dict],
+        language: str = "",
     ) -> str:
-        _lang = _resolve_language(brand)
+        _lang = _resolve_language(brand, language)
         system_prompt = get_prompt("logistics_system", _lang).format(brand_name=brand.name)
         if _lang != "en":
             system_prompt += f" Respond in {_lang}."
@@ -1082,6 +1084,7 @@ class RAGService:
         user_message: str,
         top_k: int | None = None,
         allow_unverified_tracking: bool = False,
+        language: str = "",
     ) -> AsyncGenerator[str, None]:
         _key = _cache_key(brand.slug, user_message)
         with _resp_lock:
@@ -1124,7 +1127,7 @@ class RAGService:
         pending_messages: list[models.Message] = [user_msg]
 
         ctx = state_machine.get_context(db, conv.id)
-        _lang = _resolve_language(brand)
+        _lang = _resolve_language(brand, language)
 
         try:
             if state_machine.is_tracking_active(ctx):
@@ -1133,6 +1136,7 @@ class RAGService:
                     allow_unverified_tracking=allow_unverified_tracking,
                     pending_messages=pending_messages,
                     product_urls=product_urls,
+                    language=language,
                 )
                 if result:
                     yield f"data: {json.dumps(result)}\n\n"
@@ -1147,6 +1151,7 @@ class RAGService:
                     allow_unverified_tracking=allow_unverified_tracking,
                     pending_messages=pending_messages,
                     product_urls=product_urls,
+                    language=language,
                 )
                 if result:
                     yield f"data: {json.dumps(result)}\n\n"
@@ -1162,6 +1167,7 @@ class RAGService:
                         allow_unverified_tracking=allow_unverified_tracking,
                         pending_messages=pending_messages,
                         product_urls=product_urls,
+                    language=language,
                     )
                     if result:
                         yield f"data: {json.dumps(result)}\n\n"
@@ -1169,7 +1175,8 @@ class RAGService:
         except Exception as e:
             logger.exception("Tracking flow failed in stream — %s", e)
             state_machine.reset(db, ctx)
-            answer = "I'm having trouble accessing the tracking system right now."
+            lang = _resolve_language(brand, language)
+            answer = get_text("tracking.prompt.tracking_blocked", lang)
             asst_msg = models.Message(
                 conversation_id=conv.id, role="assistant", content=answer,
             )
@@ -1276,7 +1283,7 @@ class RAGService:
                         .first()
                     )
                     if page:
-                        answer = f"You're now on the {page.title} product page."
+                        answer = get_text("rag.nav_on_page", _lang).format(title=page.title)
                         elapsed_ms = int((time.monotonic() - t0) * 1000)
                         logger.info("Product page link: %s → %s (%.2fs)", page.title, page.url, elapsed_ms / 1000)
                         yield f"data: {json.dumps({'answer': answer, 'session_id': session_id, 'latency_ms': elapsed_ms, 'urls': [{'title': page.title, 'url': page.url}], 'brand': brand.slug, 'sources': [], 'citations': []})}\n\n"
@@ -1311,18 +1318,16 @@ class RAGService:
                             None,
                         )
                         if matched_page:
-                            answer = (
-                                f"I couldn't find '{search_term}'. "
-                                f"Did you mean '{matched_page.title}'?"
+                            answer = get_text("rag.nav_not_found_suggest", _lang).format(
+                                search_term=search_term, matched_page=matched_page.title,
                             )
                             elapsed_ms = int((time.monotonic() - t0) * 1000)
                             yield f"data: {json.dumps({'answer': answer, 'session_id': session_id, 'latency_ms': elapsed_ms, 'urls': [{'title': matched_page.title, 'url': matched_page.url}], 'brand': brand.slug, 'sources': [], 'citations': []})}\n\n"
                             return
 
                     titles = [p.title for p in all_pages if p.title]
-                    answer = (
-                        f"I couldn't find a page for '{search_term}'. "
-                        f"Available pages: {', '.join(titles)}."
+                    answer = get_text("rag.nav_not_found_list", _lang).format(
+                        search_term=search_term, titles=", ".join(titles),
                     )
                     elapsed_ms = int((time.monotonic() - t0) * 1000)
                     yield f"data: {json.dumps({'answer': answer, 'session_id': session_id, 'latency_ms': elapsed_ms, 'urls': [{'title': p.title, 'url': p.url} for p in all_pages if p.title], 'brand': brand.slug, 'sources': [], 'citations': []})}\n\n"
@@ -1333,7 +1338,7 @@ class RAGService:
             logger.error("Chroma query FAILED in stream for %s: %s", brand.slug, e)
 
         if not context or not context.strip():
-            answer = "I don't have relevant information in the knowledge base to answer that question."
+            answer = get_text("rag.no_results", _lang)
             latency_ms = int((time.monotonic() - t0) * 1000)
             asst_msg = models.Message(
                 conversation_id=conv.id, role="assistant", content=answer, latency_ms=latency_ms,
@@ -1349,7 +1354,7 @@ class RAGService:
             return
 
         llm_messages = history + [{"role": "user", "content": user_message}]
-        _lang = _resolve_language(brand)
+        _lang = _resolve_language(brand, language)
         system_prompt = get_prompt("system", _lang).format(brand_name=brand.name)
         if _lang != "en":
             system_prompt += f" Respond in {_lang}."
@@ -1397,7 +1402,7 @@ class RAGService:
             yield f"data: {json.dumps(result)}\n\n"
         except Exception as e:
             logger.exception("LLM stream failed — %s", e)
-            answer = "I'm sorry, I encountered an error generating a response."
+            answer = get_text("rag.llm_error", _lang)
             asst_msg = models.Message(
                 conversation_id=conv.id, role="assistant", content=answer,
             )

@@ -5,6 +5,7 @@ Brand service — CRUD for brands.
 from __future__ import annotations
 import json
 import logging
+import re
 
 from sqlalchemy.orm import Session
 
@@ -70,6 +71,7 @@ class BrandService:
             "logo_url", "width", "height", "position",
             "show_think_fast", "input_placeholder",
         }
+        TEXT_FIELDS = {"title", "welcome_message", "input_placeholder"}
         brand = db.query(models.Brand).filter_by(slug=brand_slug).first()
         if not brand:
             from fastapi import HTTPException
@@ -78,7 +80,14 @@ class BrandService:
             current = json.loads(brand.widget_config_json) if brand.widget_config_json else {}
         except (json.JSONDecodeError, TypeError):
             current = {}
-        current.update({k: v for k, v in updates.items() if v is not None and k in ALLOWED})
+        sanitized = {}
+        for k, v in updates.items():
+            if v is None or k not in ALLOWED:
+                continue
+            if isinstance(v, str) and k in TEXT_FIELDS:
+                v = re.sub(r'<[^>]*>', '', v)
+            sanitized[k] = v
+        current.update(sanitized)
         brand.widget_config_json = json.dumps(current)
         db.commit()
         return WidgetConfig(**current)

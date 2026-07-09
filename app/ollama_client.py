@@ -13,6 +13,7 @@ from httpx import ConnectError, TimeoutException
 import requests
 
 from app.config import get_settings
+from app.translations import get_text, DEFAULT_LANGUAGE
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -36,10 +37,7 @@ class LLMClient:
     ) -> AsyncGenerator[str, None]:
         """Async generator yielding string chunks from Groq as they arrive."""
         if not self._groq_api_key:
-            yield (
-                "[LLM unavailable: GROQ_API_KEY not set. "
-                "Add it to .env — see console.groq.com]"
-            )
+            yield get_text("llm.error.api_key", DEFAULT_LANGUAGE)
             return
 
         if append_rag_instruction:
@@ -67,14 +65,17 @@ class LLMClient:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 async with client.stream("POST", url, json=payload, headers=headers) as resp:
                     if resp.status_code == 401:
-                        yield "[LLM error 401: invalid API key]"
+                        yield get_text("llm.error.http", DEFAULT_LANGUAGE).format(status_code=401, message="invalid API key")
                         return
                     if resp.status_code == 429:
-                        yield "[LLM error 429: rate limited — try again shortly]"
+                        yield get_text("llm.error.rate_limited", DEFAULT_LANGUAGE)
                         return
                     if resp.status_code != 200:
                         body = await resp.aread()
-                        yield f"[LLM error {resp.status_code}: {body.decode(errors='replace')[:200]}]"
+                        yield get_text("llm.error.http", DEFAULT_LANGUAGE).format(
+                            status_code=resp.status_code,
+                            message=body.decode(errors='replace')[:200]
+                        )
                         return
 
                     async for line in resp.aiter_lines():
@@ -95,11 +96,11 @@ class LLMClient:
                         except json.JSONDecodeError:
                             pass
         except ConnectError:
-            yield "[LLM unavailable: cannot reach Groq API — check internet]"
+            yield get_text("llm.error.unavailable", DEFAULT_LANGUAGE)
         except TimeoutException:
-            yield "[LLM error: request timed out]"
+            yield get_text("llm.error.timeout", DEFAULT_LANGUAGE)
         except Exception as e:
-            yield f"[LLM error: {e}]"
+            yield get_text("llm.error.generic", DEFAULT_LANGUAGE).format(error=str(e))
 
     async def chat(
         self,

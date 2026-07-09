@@ -38,6 +38,7 @@ from jinja2 import Environment, FileSystemLoader
 
 import hashlib
 import html
+import re
 import secrets
 
 from fastapi import (
@@ -402,6 +403,7 @@ async def chat(brand_slug: str, req: ChatRequest, request: Request, db: Session 
         user_message=req.message,
         top_k=req.top_k,
         allow_unverified_tracking=allow_unverified_tracking,
+        language=req.language,
     )
     if result.get("message_id"):
         from app.rag_service import _generate_suggestions_async
@@ -412,7 +414,7 @@ async def chat(brand_slug: str, req: ChatRequest, request: Request, db: Session 
                 answer=result.get("answer", ""),
                 history=[],
                 user_message=req.message,
-                language=getattr(brand, "language", "en"),
+                language=req.language,
             )
         )
         # Trigger background summarization for long conversations
@@ -426,7 +428,7 @@ async def chat(brand_slug: str, req: ChatRequest, request: Request, db: Session 
                 bg_db = SessionLocal()
                 from app.rag_service import _summarize_conversation_async
                 asyncio.create_task(
-                    _summarize_conversation_async(bg_db, brand.name, conv, getattr(brand, "language", "en"))
+                    _summarize_conversation_async(bg_db, brand.name, conv, req.language)
                 )
     return ChatResponse(**result)
 
@@ -449,6 +451,7 @@ async def chat_stream(brand_slug: str, req: ChatRequest, request: Request, db: S
             user_message=req.message,
             top_k=req.top_k,
             allow_unverified_tracking=allow_unverified_tracking,
+            language=req.language,
         ),
         media_type="text/event-stream",
         headers={
@@ -960,26 +963,64 @@ def widget(brand_slug: str, db: Session = Depends(get_db)):
     safe_logo_url = html.escape(cfg.logo_url or "")
     logo_html = f'<img src="{safe_logo_url}" alt="Logo" style="height:24px;border-radius:4px;">' if cfg.logo_url else ""
     title_text = html.escape(cfg.title or brand_slug)
-    welcome = html.escape(cfg.welcome_message or f"Hello! I'm the {brand_slug} assistant. Ask me anything.")
-    from app.prompts import get_widget_labels
-    labels = get_widget_labels(getattr(brand, "language", "en"))
-    return HTMLResponse(_load_template("widget.html").format(
-        brand=brand_slug,
-        accent_color=cfg.accent_color,
-        bg_color=cfg.bg_color,
-        surface_color=cfg.surface_color,
-        border_color=cfg.border_color,
-        text_color=cfg.text_color,
-        text_dim_color=cfg.text_dim_color,
-        user_bg_color=cfg.user_bg_color,
-        bot_bg_color=cfg.bot_bg_color,
+    from app.prompts import get_widget_labels, WIDGET_LABELS
+    from app.translations import is_rtl, SUPPORTED_LANGUAGES
+    brand_language = getattr(brand, "language", "en") or "en"
+    labels = get_widget_labels(brand_language)
+    welcome = html.escape(cfg.welcome_message or labels.get("welcome", "Hello! How can I help you?"))
+    direction = "rtl" if is_rtl(brand_language) else "ltr"
+    # Embed all widget labels for all supported languages as JSON for client-side switching
+    all_labels = {}
+    for lang in SUPPORTED_LANGUAGES:
+        lbls = get_widget_labels(lang)
+        all_labels[lang] = {k: v for k, v in lbls.items()}
+    import json
+    labels_json = json.dumps(all_labels, ensure_ascii=False)
+
+    _SAFE_CSS_RE = re.compile(r'^[a-zA-Z#0-9][a-zA-Z0-9#(),\s%.\-]*$')
+
+    def _safe_css(val: str, default: str) -> str:
+        return val if val and _SAFE_CSS_RE.match(val) else default
+
+    def _js_escape(val: str) -> str:
+        return (val
+                .replace("\\", "\\\\")
+                .replace('"', '\\"')
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+                .replace("</", "<\\/"))
+
+    html_content = _load_template("widget.html").format(
+        brand=_js_escape(brand_slug),
+        language=_js_escape(brand_language),
+        direction=direction,
+        accent_color=_safe_css(cfg.accent_color, "#f0a500"),
+        bg_color=_safe_css(cfg.bg_color, "#0d0d0d"),
+        surface_color=_safe_css(cfg.surface_color, "#161616"),
+        border_color=_safe_css(cfg.border_color, "#2a2a2a"),
+        text_color=_safe_css(cfg.text_color, "#e8e8e8"),
+        text_dim_color=_safe_css(cfg.text_dim_color, "#888"),
+        user_bg_color=_safe_css(cfg.user_bg_color, "#1e1e1e"),
+        bot_bg_color=_safe_css(cfg.bot_bg_color, "#111"),
         width=cfg.width,
         height=cfg.height,
         logo_html=logo_html,
         title=title_text,
         welcome_message=welcome,
-        **labels,
-    ))
+        assistant=_js_escape(labels.get("assistant", "Assistant")),
+        placeholder=_js_escape(labels.get("placeholder", "Ask a question\u2026")),
+        send=_js_escape(labels.get("send", "Send")),
+        sources=_js_escape(labels.get("sources", "Sources:")),
+        helpful=_js_escape(labels.get("helpful", "Helpful")),
+        not_helpful=_js_escape(labels.get("not_helpful", "Not helpful")),
+        feedback_thanks=_js_escape(labels.get("feedback_thanks", "Thanks for the feedback!")),
+        feedback_improve=_js_escape(labels.get("feedback_improve", "Noted, we'll improve.")),
+        network_error=_js_escape(labels.get("network_error", "Network error \u2014 please try again.")),
+        powered_by=_js_escape(labels.get("powered_by", "powered by RAG")),
+    )
+    html_content = html_content.replace("__ALL_LABELS_JSON__", labels_json)
+    return HTMLResponse(html_content)
 
 
 @app.get("/widget.js", tags=["Widget"], summary="Get the widget JavaScript snippet")
