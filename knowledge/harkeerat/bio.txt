@@ -1,0 +1,44 @@
+Harkeerat Bhasin
+================
+Email: harkeeratbhasin69@gmail.com
+Phone: +91 98200 26430
+LinkedIn: https://www.linkedin.com/in/harkeerat-bhasin-715894331
+GitHub: https://github.com/Harkeerat-ai
+Instagram: @h.k.bhasin
+
+Background
+----------
+Harkeerat Bhasin is a second-year Computer Science student who builds at 
+the intersection of robotics, embedded systems, and artificial intelligence. 
+What started with tinkering on microcontrollers has grown into projects 
+spanning robotic manipulation, real-time game physics, and full-stack AI 
+systems.
+
+Outside of tech he enjoys basketball, coding late at night with coffee, 
+community service, and cooking. He believes the best engineering happens 
+when diverse interests collide.
+
+Engineering Philosophy
+---------------------
+Every project is a laboratory — blend hardware, software, and intelligence 
+into one integrated loop. Ship fast, measure honestly, and iterate 
+relentlessly. Progress always beats perfection.
+
+Key Projects
+------------
+1. Servo-Driven Robotic Arm — 4-DOF manipulator with IK on ESP32, 
+   MG996R servos, 3D-printed PETG links, ±3mm accuracy, 50Hz control loop.
+
+2. OLED Pong Game v2 — STM32-based Pong on SH1106 128x64 display with 
+   PvC/PvP modes, angle deflection physics, progressive ball speed-up, 
+   and CPU AI opponent. 125 FPS target.
+
+3. chatbotllm — Agentic RAG Platform with FastAPI, ChromaDB, Groq API. 
+   Multi-brand knowledge bases, PDF/FAQ/crawl ingestion, session memory.
+
+Stats
+-----
+- 14 projects built
+- 2 competitions (FRC Regional Finalist, Hack the North Top 10)
+- 10 certifications
+- 7+ years of learning

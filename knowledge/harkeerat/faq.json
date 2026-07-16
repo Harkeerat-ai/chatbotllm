@@ -1,0 +1,74 @@
+[
+  {
+    "question": "Who is Harkeerat Bhasin?",
+    "answer": "Harkeerat Bhasin is a second-year Computer Science student and AI-driven robotics engineer who builds at the intersection of embedded systems, robotics, and artificial intelligence. He loves food, coding, basketball, community service, caffeine, and building things."
+  },
+  {
+    "question": "What are Harkeerat's main interests?",
+    "answer": "Robotics, embedded systems, AI, programming, basketball, community service, and building things. He is driven by curiosity and powered by caffeine."
+  },
+  {
+    "question": "What projects has Harkeerat built?",
+    "answer": "His portfolio includes a Servo-Driven Robotic Arm (4-DOF with inverse kinematics on ESP32), an OLED Pong Game v2 (on STM32 with SH1106 display), and chatbotllm (an Agentic RAG Platform with FastAPI, ChromaDB, and Groq). He also has projects in computer vision, embedded systems, and automation."
+  },
+  {
+    "question": "How can I contact Harkeerat?",
+    "answer": "Email: harkeeratbhasin69@gmail.com, Phone: +91 98200 26430, LinkedIn: https://www.linkedin.com/in/harkeerat-bhasin-715894331, GitHub: https://github.com/Harkeerat-ai, Instagram: @h.k.bhasin"
+  },
+  {
+    "question": "What is the Servo-Driven Robotic Arm project?",
+    "answer": "A 4-DOF robotic manipulator with inverse kinematics, serial servo control, and a web-based teleoperation interface. Built on ESP32 firmware with MG996R servos, 3D-printed PETG links, and a Python calibration pipeline. Achieves ±3mm position accuracy at 50 Hz control loop."
+  },
+  {
+    "question": "What is the OLED Pong Game v2?",
+    "answer": "A full-featured Pong game on a 128x64 SH1106 OLED powered by an STM32 microcontroller. Features PvC and PvP modes, live score HUD, angle deflection physics where paddle hit position determines rebound angle, progressive ball speed-up (5% per rally), and a CPU opponent that tracks the ball at 65% of human speed. Runs at 125 FPS target."
+  },
+  {
+    "question": "What is chatbotllm?",
+    "answer": "An open-source Agentic RAG Platform built with FastAPI, ChromaDB, SQLite, and Groq API. It supports multi-brand knowledge bases, PDF/FAQ/web crawl ingestion, 6-turn conversation memory, source citations, and an embeddable chat widget. This portfolio site's AI assistant runs on it."
+  },
+  {
+    "question": "What programming languages does Harkeerat use?",
+    "answer": "C++ (for embedded/Arduino/STM32/ESP32), Python (FastAPI, OpenCV, ML), TypeScript/JavaScript (React, Vite), and related web technologies."
+  },
+  {
+    "question": "What certifications does Harkeerat have?",
+    "answer": "Level 3 Robotics Certification (EduPrime Robotics, 2024), Machine Learning Specialization (Coursera/Stanford Online, 2024), Cloud Practitioner Certificate (AWS Educate, 2023), Dean's List for Academic Excellence (2024)."
+  },
+  {
+    "question": "What competitions has Harkeerat participated in?",
+    "answer": "FIRST Robotics Competition — Regional Finalist (Team 5823, 2023), Hack the North — Top 10 Finalist in Autonomous Systems Track (2024)."
+  },
+  {
+    "question": "What is Harkeerat's engineering philosophy?",
+    "answer": "Every project is a laboratory — blend hardware, software, and intelligence into one integrated loop. Ship fast, measure honestly, and iterate relentlessly. Progress always beats perfection."
+  },
+  {
+    "question": "What frameworks and tools does Harkeerat work with?",
+    "answer": "React, Vite, TailwindCSS, FastAPI, ChromaDB, SQLite, Ollama, Groq API, OpenCV, Three.js/React Three Fiber, Framer Motion, Arduino, STM32, ESP32, SH1106/SSD1306 OLEDs."
+  },
+  {
+    "question": "Does Harkeerat have professional experience?",
+    "answer": "He is open to collaborations, internships, and conversations about robotics and AI. He treats every project as an opportunity to learn and build."
+  },
+  {
+    "question": "What is Harkeerat's educational background?",
+    "answer": "He is a second-year Computer Science student focused on AI-driven robotics, embedded systems, and machine intelligence. He has 7+ years of learning experience in technology and engineering."
+  },
+  {
+    "question": "What are Harkeerat's hobbies outside of tech?",
+    "answer": "He enjoys playing basketball, cooking and enjoying food, community service, and spending time building creative projects — whether hardware, software, or both."
+  },
+  {
+    "question": "What is the Robotic Arm case study about?",
+    "answer": "It covers designing a 4-axis servo arm with sub-centimeter positioning accuracy, controllable via serial command and a browser-based UI. Key challenges included servo jitter, IK singularities, and power supply brownouts — each solved with specific engineering trade-offs."
+  },
+  {
+    "question": "What is the Pong Game case study about?",
+    "answer": "It covers building a complete embedded Pong game on an STM32 with SH1106 OLED. Key challenges included the sticky paddle bug (solved with velocity-direction gating), boot-time false triggers (solved with arm-then-detect debouncing), and score HUD overwriting (solved with dedicated pixel rows)."
+  },
+  {
+    "question": "What engineering challenges has Harkeerat solved?",
+    "answer": "Servo jitter in robotic arms (exponential smoothing + deadband), IK singularities (workspace clamping + Jacobian monitoring), power brownouts (bulk capacitors + staggered commands), sticky paddle physics bug (velocity gating), OLED display constraints (frame pacing via millis()), and multi-brand RAG architecture."
+  }
+]
