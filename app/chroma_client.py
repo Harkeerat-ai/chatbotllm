@@ -1,3 +1,4 @@
+from __future__ import annotations
 import chromadb
 from chromadb.api.collection_configuration import HNSWConfiguration
 from chromadb.api.types import EmbeddingFunction, Embeddings, Documents
