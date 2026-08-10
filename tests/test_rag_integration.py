@@ -37,8 +37,8 @@ def test_rag_integration(tmp_path, monkeypatch):
             metadatas=[{"source_name": "faq"}, {"source_name": "doc"}],
         )
 
-        # Monkeypatch ollama.chat to capture the context argument
-        import app.ollama_client as ollama_client
+        # Monkeypatch llm.chat to capture the context argument
+        import app.llm_client as llm_client
 
         captured = {}
 
@@ -46,7 +46,7 @@ def test_rag_integration(tmp_path, monkeypatch):
             captured["context"] = context
             return ("__FAKE_ANSWER__", 1)
 
-        monkeypatch.setattr(ollama_client.ollama, "chat", fake_chat)
+        monkeypatch.setattr(llm_client.llm, "chat", fake_chat)
 
         # Call rag_service.ask and assert the captured context contains our doc
         from app.services import rag_service

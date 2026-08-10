@@ -4,13 +4,14 @@ Runs 10 attacks against localhost:8000, documents results, restores state.
 """
 
 import json
+import os
 import sys
 import time
 import requests
 
 TARGET = "http://localhost:8000"
 BRAND = "kalp"
-ADMIN_PASS = "change-me-now"
+ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "change-me-now")
 
 session = requests.Session()
 session.verify = False

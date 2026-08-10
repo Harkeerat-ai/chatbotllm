@@ -1,88 +1,54 @@
-# Agentic RAG Platform v2
+# Agentic RAG Platform
 
-A production-ready multi-brand RAG backend built on **FastAPI + SQLite + ChromaDB + Ollama**.
+A production-ready multi-brand RAG backend built on **FastAPI + SQLite + ChromaDB + Ollama/Groq**.
 
-## What's new vs the original starter
+## Features
 
-| Feature | Original | v2 |
-|---|---|---|
-| Chat endpoint | ✅ (bare) | ✅ with memory + sources |
-| Conversation memory | ❌ | ✅ SQLite-backed, 6-turn window |
-| PDF ingestion | ❌ | ✅ PyMuPDF, page-chunked |
-| Website crawler | ❌ | ✅ BFS, same-domain, configurable depth |
-| FAQ import | ❌ | ✅ JSON + CSV |
-| Lead capture | ❌ | ✅ with analytics event |
-| Analytics | ❌ | ✅ event log + summary |
-| Admin dashboard | ❌ | ✅ session-auth, dark UI |
-| Widget frontend | ❌ | ✅ embeddable via `<script>` |
-| Settings via .env | ❌ | ✅ pydantic-settings |
-| Seed script | ❌ | ✅ auto-ingests `knowledge/` |
-| Chunk deduplication | ❌ | ✅ SHA-1 Chroma IDs (upsert) |
-| Source tracking | ❌ | ✅ every chunk linked to source |
+| Category | Capabilities |
+|---|---|
+| **Multi-language** | 8 languages (en, es, ar, hi, mr, ta, gu, pa), RTL support for Arabic |
+| **Conversational RAG** | Hybrid search (BM25 + dense embeddings), 6-turn memory, source citations |
+| **Order tracking** | State-machine-driven tracking intent, carrier lookup, verification, ETA |
+| **Admin dashboard** | Session-auth, brand CRUD, analytics, tracking override, source rollback |
+| **Widget** | Embeddable `<script>` tag, configurable colors/labels, 8-language UI |
+| **Ingestion** | PDF, TXT, FAQ JSON/CSV, website crawler with SSRF protection |
+| **Security** | CSP, CSRF (itsdangerous), API-key auth, rate limiting, input sanitization |
+| **LLM backends** | Ollama (local) or Groq (cloud), configurable per model |
 
 ---
 
-## Local setup (5 steps)
+## Quick start
 
-### 1 — Prerequisites
+### Prerequisites
 
 - Python 3.10+
-- [Ollama](https://ollama.com) installed and running
+- [Ollama](https://ollama.com) (optional — can use Groq cloud instead)
 
-Pull the required models:
+Pull models if using Ollama:
 ```bash
-ollama pull llama3.1
+ollama pull qwen3:1.7b
 ollama pull nomic-embed-text
 ```
 
-### 2 — Clone / unzip and install
+### Install & run
 
 ```bash
-cd agentic-rag
 pip install -r requirements.txt
-```
-
-### 3 — Configure
-
-```bash
 cp .env.example .env
-# Edit .env — at minimum change ADMIN_PASSWORD and SESSION_SECRET
+# Edit .env — set ADMIN_PASSWORD, SESSION_SECRET, CSRF_SECRET
+python seed.py                    # optional: ingest knowledge/
+uvicorn app.main:app --reload --port 8000
 ```
 
-### 4 — Seed knowledge (optional)
+### Open
 
-Drop `.txt`, `.pdf`, `faq.json`, or `.csv` files into `knowledge/<brand>/`:
+| URL | What |
+|---|---|
+| `http://localhost:8000/docs` | API docs (OpenAPI) |
+| `http://localhost:8000/admin` | Admin dashboard |
+| `http://localhost:8000/widget/kalp` | Chat widget |
 
-```
-knowledge/
-  kalp/
-    product-catalogue.pdf
-    faq.json
-  biopharma/
-    overview.txt
-```
-
-Then run:
-```bash
-python seed.py
-```
-
-### 5 — Start
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Open:
-- **API docs**: http://localhost:8000/docs
-- **Admin dashboard**: http://localhost:8000/admin
-- **Chat widget (default brand)**: http://localhost:8000/widget/default
-
----
-
-## Embedding a widget on any website
-
-Add this one-liner before `</body>`:
+### Embed widget on any site
 
 ```html
 <script src="http://localhost:8000/widget.js" data-brand="kalp"></script>
@@ -90,74 +56,77 @@ Add this one-liner before `</body>`:
 
 ---
 
-## Key API routes
+## Multi-language
 
-### Chat
+All chat, tracking, widget, and admin responses respect the `language` parameter.
+Set it per brand in the admin panel or pass it per-request:
+
+```json
+POST /api/kalp/chat
+{ "message": "Where is my order?", "session_id": "abc", "language": "hi" }
 ```
+
+Supported languages: `en` (default), `es`, `ar`, `hi`, `mr`, `ta`, `gu`, `pa`.
+
+---
+
+## API overview
+
+All `/api/*` endpoints require the `X-API-Key` header. Create an API key via the admin dashboard.
+
+```json
 POST /api/{brand}/chat
-{ "message": "...", "session_id": "visitor-abc", "top_k": 5 }
+{ "message": "...", "session_id": "visitor-abc", "language": "en", "top_k": 5 }
 ```
 
-### Ingest PDF
-```
-POST /api/{brand}/ingest/pdf
-multipart: source_name=..., file=<binary>
-```
-
-### Ingest FAQ (JSON)
-```
-POST /api/{brand}/ingest/faq
-multipart: source_name=..., payload='[{"question":"...","answer":"..."}]'
+```json
+POST /api/{brand}/tracking/lookup
+{ "lookup_type": "auto", "lookup_value": "KALP-1001", "session_id": "abc", "source": "web" }
 ```
 
-### Crawl a website
+```json
+GET/PUT /api/{brand}/widget-config
+// Update widget title, colors, welcome message, placeholder
 ```
+
+```json
+POST /api/{brand}/ingest/text
+{ "source_name": "docs", "content": "...", "metadata": {} }
+```
+
+```json
 POST /api/{brand}/crawl
 { "url": "https://example.com", "max_pages": 10, "max_depth": 1 }
 ```
 
-### Create a new brand
-```
-POST /api/brands
-{ "slug": "my-brand", "name": "My Brand", "description": "..." }
-```
+Tracking is also handled through the chat endpoint (state machine auto-detects intent):
 
-### Analytics
-```
-GET /api/{brand}/analytics
-```
-
-### Order tracking
-```
-POST /api/{brand}/tracking/lookup
-{
-  "lookup_type": "auto",
-  "lookup_value": "BIO-1001",
-  "session_id": "visitor-abc",
-  "source": "tracking_page"
-}
-```
-
-The chatbot also handles tracking intent through the normal chat route:
-```
+```json
 POST /api/{brand}/chat
-{ "message": "Where is my order?", "session_id": "visitor-abc" }
+{ "message": "Where is my order?", "session_id": "abc" }
 ```
 
-Local startup creates a demo logistics provider, hubs, and these sample orders:
+### Admin routes
+
+| Route | Description |
+|---|---|
+| `GET /admin` | Dashboard with stats |
+| `GET /admin/brands` | Brand CRUD |
+| `GET /admin/tracking` | Tracking search |
+| `GET /admin/tracking/{brand_slug}/{id}` | Shipment detail + override |
+| `GET /admin/analytics` | Usage analytics |
+
+---
+
+## Sample tracking data
+
+Local startup seeds demo data:
 
 | Brand | Order ID | Tracking Number |
-|---|---|---|---|
-| `default` | `BIO-1001` | `TRK-BIO-1001` |
-| `biopharma` | `BIO-1001` | `TRK-BIO-1001` |
+|---|---|---|
+| `kalp` | `KALP-1001` | `TRK-KALP-1001` |
 | `biopharma` | `BIO-1001` | `TRK-BIO-1001` |
 | `building` | `BLD-1001` | `TRK-BLD-1001` |
-| `kalp` | `KALP-1001` | `TRK-KALP-1001` |
-
-Admin tracking UI:
-```
-GET /admin/tracking
-```
 
 ---
 
@@ -167,13 +136,20 @@ GET /admin/tracking
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./app.db` | SQLAlchemy DB URL |
 | `CHROMA_PATH` | `./vector_db` | ChromaDB persistence path |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
-| `OLLAMA_CHAT_MODEL` | `llama3.1` | Chat model |
-| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
-| `USE_OLLAMA_EMBEDDINGS` | `true` | Use Ollama embeddings |
 | `ADMIN_USERNAME` | `admin` | Dashboard login |
-| `ADMIN_PASSWORD` | `change-me-now` | **Change this** |
-| `SESSION_SECRET` | *(placeholder)* | **Change this** |
+| `ADMIN_PASSWORD` | `change-me-now` | **Change before deploying** |
+| `SESSION_SECRET` | *(placeholder)* | Session signing key — **change this** |
+| `CSRF_SECRET` | *(placeholder)* | CSRF signing key — **set this** |
+| `CORS_ORIGINS` | `["http://localhost:8000"]` | Allowed CORS origins |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
+| `OLLAMA_CHAT_MODEL` | `qwen3:1.7b` | Chat model |
+| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
+| `OLLAMA_NUM_CTX` | `1024` | Context window size |
+| `USE_OLLAMA_EMBEDDINGS` | `true` | Use Ollama for embeddings |
+| `GROQ_API_KEY` | — | Cloud LLM (Groq) API key |
+| `GROQ_MODEL` | `llama-3.1-8b-instant` | Groq model name |
+| `HF_API_TOKEN` | — | HuggingFace API token |
+| `HF_EMBED_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | HF embedding model |
 | `CHUNK_SIZE` | `512` | Words per chunk |
 | `CHUNK_OVERLAP` | `64` | Overlap between chunks |
 | `DEFAULT_TOP_K` | `5` | Default retrieval count |
@@ -182,17 +158,21 @@ GET /admin/tracking
 
 ---
 
-## Production hardening checklist
+## Production hardening
 
-- [ ] Replace `hash_password` with `bcrypt` or `argon2`
-- [ ] Add `slowapi` rate limiting on `/chat` and `/ingest/*`
-- [ ] Enable CSRF protection for admin forms
+- [x] CSP header (`default-src 'self'`, restricted script/style/font/base-uri)
+- [x] CORS locked to configured origins
+- [x] CSRF tokens on all admin POST forms (itsdangerous-signed)
+- [x] API-key authentication on all `/api/*` endpoints
+- [x] Rate limiting (chat, brand creation, FAQ ingestion)
+- [x] SSRF protection (DNS rebinding–resistant transport)
+- [x] Input sanitization (HTML tag stripping, CSS validation)
+- [x] Session cookie hardened (`HttpOnly`, `Secure`, `SameSite`)
+- [x] Startup assertions enforce non-default `ADMIN_PASSWORD`/`SESSION_SECRET`/`CSRF_SECRET`
+- [ ] Replace `hash_password` with bcrypt or argon2
 - [ ] Add background task queue (Celery/ARQ) for large crawls and batch PDFs
 - [ ] Switch to PostgreSQL for high-concurrency deployments
-- [ ] Add JWT / API-key auth for external API clients
-- [ ] Set up structured logging (structlog / loguru)
 - [ ] Add health-check endpoint for load balancers
-- [ ] Set CORS `allow_origins` to your actual frontend domain(s)
 
 ---
 
@@ -201,18 +181,34 @@ GET /admin/tracking
 ```
 app/
   __init__.py
-  config.py       — pydantic-settings env config
-  db.py           — SQLAlchemy engine + session
-  models.py       — ORM tables
-  schemas.py      — Pydantic request/response models
-  utils.py        — chunking, slugify, hashing
-  chroma_client.py — ChromaDB singleton
-  services.py     — all business logic
-  main.py         — FastAPI routes, admin UI, widget
+  config.py                     — pydantic-settings env config
+  db.py                         — SQLAlchemy engine + session
+  models.py                     — ORM tables
+  schemas.py                    — Pydantic request/response models
+  utils.py                      — chunking, slugify, hashing
+  chroma_client.py              — ChromaDB singleton
+  main.py                       — FastAPI routes, admin UI, widget
+  services.py                   — RAG, chat, FAQ, lead logic
+  brand_service.py              — Brand CRUD + widget config validation
+  tracking_service.py           — Tracking lookup, status labels, validation
+  crawler_service.py            — SSRF-protected web crawler
+  conversation_state_machine.py — Tracking intent FSM
+  api_auth.py                   — API key generation + validation
+  prompts.py                    — 8-language prompts + widget labels
+  translations.py               — 8-language key/value dictionary
+  templates/                    — Jinja2 templates (admin + widget)
 knowledge/
-  <brand>/        — drop files here for seed.py
-seed.py           — auto-ingest knowledge/ on first run
+  <brand>/                      — Drop files here for seed.py
+pytest.ini
 requirements.txt
 .env.example
 README.md
+```
+
+---
+
+## Running tests
+
+```bash
+pytest tests/ -v --ignore=tests/perf -k "not (test_stream_chat or test_genuine_faq_still_uses_rag)"
 ```

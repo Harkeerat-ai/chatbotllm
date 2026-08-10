@@ -47,7 +47,7 @@ h2{font-family:var(--mono);font-size:.85rem;text-transform:uppercase;letter-spac
       <td>{{ s.current_hub }}</td>
       <td>{{ s.location_text }}</td>
       <td>{{ s.eta_date }}</td>
-      <td><a href="/admin/tracking/{{ s.id }}">View</a></td>
+      <td><a href="/admin/tracking/{{ s.brand_slug }}/{{ s.id }}">View</a></td>
     </tr>
   {% endfor %}
   {% else %}

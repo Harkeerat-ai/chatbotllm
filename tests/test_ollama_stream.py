@@ -1,4 +1,4 @@
-"""Tests for ollama_client stream_chat response parsing."""
+"""Tests for llm_client stream_chat response parsing."""
 from __future__ import annotations
 
 import asyncio
@@ -13,7 +13,7 @@ async def test_stream_chat_skips_done_true_chunk():
     as raw JSON into the answer (regression test for the bug where
     `{"message":{"role":"assistant","content":""},"done":true,...}` was
     yielded as a raw line)."""
-    from app.ollama_client import ollama
+    from app.llm_client import llm
 
     content_lines = [
         '{"model":"g","message":{"role":"assistant","content":"Hello"},"done":false}\n',
@@ -47,7 +47,7 @@ async def test_stream_chat_skips_done_true_chunk():
 
     with patch("httpx.AsyncClient", return_value=FakeAsyncClient()):
         collected = []
-        async for chunk in ollama.stream_chat("system", [], "context"):
+        async for chunk in llm.stream_chat("system", [], "context"):
             collected.append(chunk)
 
     answer = "".join(collected)
@@ -59,7 +59,7 @@ async def test_stream_chat_skips_done_true_chunk():
 @pytest.mark.asyncio
 async def test_stream_chat_handles_no_message_done_chunk():
     """Verify that a `done:true` chunk with NO message key is also skipped."""
-    from app.ollama_client import ollama
+    from app.llm_client import llm
 
     content_lines = [
         '{"model":"g","message":{"role":"assistant","content":"Hi"},"done":false}\n',
@@ -92,7 +92,7 @@ async def test_stream_chat_handles_no_message_done_chunk():
 
     with patch("httpx.AsyncClient", return_value=FakeAsyncClient()):
         collected = []
-        async for chunk in ollama.stream_chat("system", [], "context"):
+        async for chunk in llm.stream_chat("system", [], "context"):
             collected.append(chunk)
 
     answer = "".join(collected)

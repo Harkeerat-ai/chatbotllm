@@ -1,70 +1,72 @@
 <!DOCTYPE html>
-<html lang="{language}" dir="{direction}">
+<html lang="{{ language }}" dir="{{ direction }}">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>{title} {assistant}</title>
+<title>{{ title }} {{ assistant }}</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
 
-  *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{ font-family: 'IBM Plex Sans', sans-serif; background: transparent; overflow: hidden; }}
-  #rag-widget {{ position: fixed; bottom: 20px; right: 20px; z-index: 999999; display: flex; flex-direction: column; align-items: flex-end; }}
-  #rag-widget.bn {{ width: {width}; height: {height}; }}
-  #toggle-btn {{ width: 56px; height: 56px; border-radius: 50%; border: none; background: {accent_color}; color: #000; font-size: 26px; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,.5); transition: .2s; display: flex; align-items: center; justify-content: center; }}
-  #toggle-btn:hover {{ transform: scale(1.08); }}
-  #widget-box {{ display: none; width: 100%; height: 100%; flex-direction: column; background: {surface_color}; border: 1px solid {border_color}; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,.7); }}
-  #widget-box.open {{ display: flex; }}
-  #minimize-btn {{ margin-left: auto; background: none; border: none; color: {text_dim_color}; font-size: 20px; cursor: pointer; padding: 0 6px; line-height: 1; transition: .15s; }}
-  #minimize-btn:hover {{ color: {text_color}; }}
-  #header {{ display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: {bg_color}; border-bottom: 1px solid {border_color}; }}
-  #header .brand-title {{ font-weight: 600; font-size: 15px; color: {text_color}; }}
-  #header .brand-sub {{ font-size: 11px; color: {text_dim_color}; margin-top: -1px; }}
-  #messages {{ flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; scroll-behavior: smooth; background: {bg_color}; }}
-  #messages .msg {{ max-width: 88%; padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.5; word-wrap: break-word; }}
-  #messages .msg.user {{ align-self: flex-end; background: {user_bg_color}; color: {text_color}; border-bottom-right-radius: 4px; }}
-  #messages .msg.bot {{ align-self: flex-start; background: {bot_bg_color}; color: {text_color}; border-bottom-left-radius: 4px; }}
-  #messages .msg .src {{ font-size: 11px; color: {text_dim_color}; margin-top: 6px; }}
-  #messages .msg .page-links {{ margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }}
-  #messages .msg .page-link {{ display: inline-block; padding: 6px 12px; border-radius: 8px; background: {surface_color}; border: 1px solid {border_color}; color: {accent_color}; text-decoration: none; font-size: 13px; font-weight: 500; transition: .15s; }}
-  #messages .msg .page-link:hover {{ background: {accent_color}; color: #000; }}
-  .chat-input {{ display: flex; gap: 8px; padding: 10px 14px; background: {bg_color}; border-top: 1px solid {border_color}; }}
-  .chat-input input {{ flex: 1; padding: 10px 14px; border-radius: 10px; border: 1px solid {border_color}; background: {surface_color}; color: {text_color}; font-size: 14px; outline: none; font-family: 'IBM Plex Sans', sans-serif; }}
-  .chat-input input:focus {{ border-color: {accent_color}; }}
-  .chat-input input::placeholder {{ color: {text_dim_color}; }}
-  .chat-input button {{ padding: 10px 18px; border-radius: 10px; border: none; background: {accent_color}; color: #000; font-weight: 600; font-size: 14px; cursor: pointer; transition: .15s; }}
-  .chat-input button:hover {{ opacity: .8; }}
-  .chat-input button:disabled {{ opacity: .4; cursor: not-allowed; }}
-  .feedback-row {{ display: flex; gap: 6px; margin-top: 4px; margin-bottom: 2px; }}
-  .feedback-row button {{ background: none; border: 1px solid {border_color}; border-radius: 6px; padding: 4px 8px; font-size: 14px; cursor: pointer; color: {text_dim_color}; transition: .15s; }}
-  .feedback-row button:hover {{ border-color: {accent_color}; color: {accent_color}; }}
-  .feedback-thanks {{ font-size: 12px; color: {accent_color}; margin-top: 4px; }}
-  .suggestions {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }}
-  .suggestions .chip {{ padding: 6px 14px; border-radius: 20px; border: 1px solid {border_color}; background: {surface_color}; color: {text_color}; font-size: 13px; cursor: pointer; transition: .15s; }}
-  .suggestions .chip:hover {{ border-color: {accent_color}; color: {accent_color}; }}
-  .citation-toggle {{ font-size: 12px; color: {accent_color}; cursor: pointer; margin-top: 4px; }}
-  .citation-content {{ display: none; font-size: 12px; color: {text_dim_color}; margin-top: 4px; padding: 6px 8px; background: {surface_color}; border-radius: 6px; }}
-  .citation-content.open {{ display: block; }}
-  @keyframes dotPulse {{ 0%, 80%, 100% {{ opacity: 0; }} 40% {{ opacity: 1; }} }}
-  .typing-dots {{ display: inline-flex; gap: 4px; padding: 4px 0; }}
-  .typing-dots span {{ width: 8px; height: 8px; background: {text_dim_color}; border-radius: 50%; animation: dotPulse 1.4s ease-in-out infinite; }}
-  .typing-dots span:nth-child(1) {{ animation-delay: 0s; }}
-  .typing-dots span:nth-child(2) {{ animation-delay: .2s; }}
-  .typing-dots span:nth-child(3) {{ animation-delay: .4s; }}
-  #lang-select {{ background: none; border: 1px solid {border_color}; color: {text_dim_color}; border-radius: 6px; padding: 1px 4px; font-size: 11px; cursor: pointer; font-family: inherit; margin-left: 8px; }}
-  #lang-select:hover {{ border-color: {accent_color}; }}
-  #lang-select option {{ background: {bg_color}; color: {text_color}; }}
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'IBM Plex Sans', sans-serif; background: transparent; overflow: hidden; }
+  #rag-widget { position: fixed; bottom: 20px; right: 20px; z-index: 999999; display: flex; flex-direction: column; align-items: flex-end; }
+  #rag-widget.bn { width: {{ width }}; height: {{ height }}; }
+  #toggle-btn { width: 56px; height: 56px; border-radius: 50%; border: none; background: {{ accent_color }}; color: #000; font-size: 26px; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,.5); transition: .2s; display: flex; align-items: center; justify-content: center; }
+  #toggle-btn:hover { transform: scale(1.08); }
+  #widget-box { display: none; width: 100%; height: 100%; flex-direction: column; background: {{ surface_color }}; border: 1px solid {{ border_color }}; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,.7); }
+  #widget-box.open { display: flex; }
+  #minimize-btn { margin-left: auto; background: none; border: none; color: {{ text_dim_color }}; font-size: 20px; cursor: pointer; padding: 0 6px; line-height: 1; transition: .15s; }
+  #minimize-btn:hover { color: {{ text_color }}; }
+  #header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: {{ bg_color }}; border-bottom: 1px solid {{ border_color }}; }
+  #header .brand-title { font-weight: 600; font-size: 15px; color: {{ text_color }}; }
+  #header .brand-sub { font-size: 11px; color: {{ text_dim_color }}; margin-top: -1px; }
+  #messages { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; scroll-behavior: smooth; background: {{ bg_color }}; }
+  #messages .msg { max-width: 88%; padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.5; word-wrap: break-word; }
+  #messages .msg.user { align-self: flex-end; background: {{ user_bg_color }}; color: {{ text_color }}; border-bottom-right-radius: 4px; }
+  #messages .msg.bot { align-self: flex-start; background: {{ bot_bg_color }}; color: {{ text_color }}; border-bottom-left-radius: 4px; }
+  #messages .msg .src { font-size: 11px; color: {{ text_dim_color }}; margin-top: 6px; }
+  #messages .msg .page-links { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+  #messages .msg .page-link { display: inline-block; padding: 6px 12px; border-radius: 8px; background: {{ surface_color }}; border: 1px solid {{ border_color }}; color: {{ accent_color }}; text-decoration: none; font-size: 13px; font-weight: 500; transition: .15s; }
+  #messages .msg .page-link:hover { background: {{ accent_color }}; color: #000; }
+  .chat-input { display: flex; gap: 8px; padding: 10px 14px; background: {{ bg_color }}; border-top: 1px solid {{ border_color }}; }
+  .chat-input input { flex: 1; padding: 10px 14px; border-radius: 10px; border: 1px solid {{ border_color }}; background: {{ surface_color }}; color: {{ text_color }}; font-size: 14px; outline: none; font-family: 'IBM Plex Sans', sans-serif; }
+  .chat-input input:focus { border-color: {{ accent_color }}; }
+  .chat-input input::placeholder { color: {{ text_dim_color }}; }
+  .chat-input button { padding: 10px 18px; border-radius: 10px; border: none; background: {{ accent_color }}; color: #000; font-weight: 600; font-size: 14px; cursor: pointer; transition: .15s; }
+  .chat-input button:hover { opacity: .8; }
+  .chat-input button:disabled { opacity: .4; cursor: not-allowed; }
+  .feedback-row { display: flex; gap: 6px; margin-top: 4px; margin-bottom: 2px; }
+  .feedback-row button { background: none; border: 1px solid {{ border_color }}; border-radius: 6px; padding: 4px 8px; font-size: 14px; cursor: pointer; color: {{ text_dim_color }}; transition: .15s; }
+  .feedback-row button:hover { border-color: {{ accent_color }}; color: {{ accent_color }}; }
+  .feedback-thanks { font-size: 12px; color: {{ accent_color }}; margin-top: 4px; }
+  .suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .suggestions .chip { padding: 6px 14px; border-radius: 20px; border: 1px solid {{ border_color }}; background: {{ surface_color }}; color: {{ text_color }}; font-size: 13px; cursor: pointer; transition: .15s; }
+  .suggestions .chip:hover { border-color: {{ accent_color }}; color: {{ accent_color }}; }
+  .citation-toggle { font-size: 12px; color: {{ accent_color }}; cursor: pointer; margin-top: 4px; }
+  .citation-content { display: none; font-size: 12px; color: {{ text_dim_color }}; margin-top: 4px; padding: 6px 8px; background: {{ surface_color }}; border-radius: 6px; }
+  .citation-content.open { display: block; }
+  @keyframes dotPulse { 0%, 80%, 100% { opacity: 0; } 40% { opacity: 1; } }
+  .typing-dots { display: inline-flex; gap: 4px; padding: 4px 0; }
+  .typing-dots span { width: 8px; height: 8px; background: {{ text_dim_color }}; border-radius: 50%; animation: dotPulse 1.4s ease-in-out infinite; }
+  .typing-dots span:nth-child(1) { animation-delay: 0s; }
+  .typing-dots span:nth-child(2) { animation-delay: .2s; }
+  .typing-dots span:nth-child(3) { animation-delay: .4s; }
+  #lang-select { background: none; border: 1px solid {{ border_color }}; color: {{ text_dim_color }}; border-radius: 6px; padding: 1px 4px; font-size: 11px; cursor: pointer; font-family: inherit; margin-left: 8px; }
+  #lang-select:hover { border-color: {{ accent_color }}; }
+  #lang-select option { background: {{ bg_color }}; color: {{ text_color }}; }
 </style>
 </head>
 <body>
 <div id="rag-widget" class="bn">
-  <button id="toggle-btn">💬</button>
+  <button id="toggle-btn">
+    <img src="/static/bean-05.png" alt="KALP" style="width:32px;height:32px;border-radius:50%;object-fit:cover;">
+  </button>
   <div id="widget-box">
     <div id="header">
-      {logo_html}
+      {{ logo_html }}
       <div>
-        <div class="brand-title">{title}</div>
-        <div class="brand-sub">{powered_by}</div>
+        <div class="brand-title">{{ title }}</div>
+        <div class="brand-sub">{{ powered_by }}</div>
       </div>
       <select id="lang-select">
         <option value="en">EN</option>
@@ -76,71 +78,85 @@
         <option value="gu">GU</option>
         <option value="pa">PA</option>
       </select>
-      <button id="minimize-btn">—</button>
+      <button id="minimize-btn">&mdash;</button>
     </div>
     <div class="messages" id="messages">
-      <div class="msg bot" id="welcome-msg">{welcome_message}</div>
+      <div class="msg bot" id="welcome-msg">{{ welcome_message }}</div>
     </div>
     <div class="chat-input">
-      <input type="text" id="input" placeholder="{placeholder}" autocomplete="off"/>
-      <button class="send-btn" id="send">{send}</button>
+      <input type="text" id="input" placeholder="{{ placeholder }}" autocomplete="off"/>
+      <button class="send-btn" id="send">{{ send }}</button>
     </div>
   </div>
 </div>
 <script>
-(function(){{
-  var BRAND = "{brand}";
+var W_BRAND = "{{ brand }}";
+var W_LANG = "{{ language }}";
+var W_LABELS = {{ all_labels_json|safe }};
+var W_SOURCES = "{{ sources }}";
+var W_HELPFUL = "{{ helpful }}";
+var W_NOT_HELPFUL = "{{ not_helpful }}";
+var W_FEEDBACK_THANKS = "{{ feedback_thanks }}";
+var W_FEEDBACK_IMPROVE = "{{ feedback_improve }}";
+var W_NETWORK_ERROR = "{{ network_error }}";
+var W_PLACEHOLDER = "{{ placeholder }}";
+var W_SEND = "{{ send }}";
+</script>
+<script>
+{% raw %}
+(function(){
+  var BRAND = W_BRAND;
   var SESSION_ID = "sess_" + Date.now() + "_" + Math.random().toString(36).slice(2,8);
-  var ALL_LABELS = __ALL_LABELS_JSON__;
-  var CURRENT_LANG = localStorage.getItem("rag_lang_" + BRAND) || "{language}";
+  var ALL_LABELS = W_LABELS;
+  var CURRENT_LANG = localStorage.getItem("rag_lang_" + BRAND) || W_LANG;
   var msgId = document.getElementById("messages");
 
-  function addMsg(role, text, extra) {{
+  function addMsg(role, text, extra) {
     var d = document.createElement("div");
     d.className = "msg " + role;
     d.innerHTML = text;
     if (extra) d.appendChild(extra);
     msgId.appendChild(d);
     msgId.scrollTop = msgId.scrollHeight;
-  }}
+  }
 
-  function getLabel(key) {{
+  function getLabel(key) {
     var labels = ALL_LABELS[CURRENT_LANG] || ALL_LABELS["en"];
     return labels[key] || key;
-  }}
+  }
 
-  function changeLanguage(lang) {{
+  function changeLanguage(lang) {
     CURRENT_LANG = lang;
     localStorage.setItem("rag_lang_" + BRAND, lang);
     var labels = ALL_LABELS[lang] || ALL_LABELS["en"];
     document.documentElement.lang = lang;
     document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
     document.getElementById("lang-select").value = lang;
-    document.getElementById("input").placeholder = labels.placeholder || "{placeholder}";
-    document.getElementById("send").textContent = labels.send || "{send}";
+    document.getElementById("input").placeholder = labels.placeholder || W_PLACEHOLDER;
+    document.getElementById("send").textContent = labels.send || W_SEND;
     var w = document.getElementById("welcome-msg");
     if (w) w.textContent = labels.welcome || w.textContent;
-    document.querySelectorAll(".feedback-row button").forEach(function(el) {{
+    document.querySelectorAll(".feedback-row button").forEach(function(el) {
       var parent = el.closest(".feedback-row");
       if (parent) parent.innerHTML = "";
-    }});
-  }}
+    });
+  }
 
-  function addTyping() {{
+  function addTyping() {
     var d = document.createElement("div");
     d.className = "msg bot typing-dots";
     d.id = "typing";
     d.innerHTML = "<span></span><span></span><span></span>";
     msgId.appendChild(d);
     msgId.scrollTop = msgId.scrollHeight;
-  }}
+  }
 
-  function remTyping() {{
+  function remTyping() {
     var t = document.getElementById("typing");
     if (t) t.remove();
-  }}
+  }
 
-  function send() {{
+  function send() {
     var inp = document.getElementById("input");
     var text = inp.value.trim();
     if (!text) return;
@@ -156,61 +172,61 @@
     var lastIdx = 0;
     var answer = "";
 
-    xhr.onprogress = function() {{
+    xhr.onprogress = function() {
       var data = xhr.responseText.slice(lastIdx);
       lastIdx = xhr.responseText.length;
       var lines = data.split("\n").filter(Boolean);
-      for (var i = 0; i < lines.length; i++) {{
+      for (var i = 0; i < lines.length; i++) {
         var line = lines[i];
-        if (line.startsWith("data: ")) {{
-          try {{
+        if (line.startsWith("data: ")) {
+          try {
             var d = JSON.parse(line.slice(6));
-            if (d.token) {{
+            if (d.token) {
               answer += d.token;
               remTyping();
               var botEl = msgId.querySelector(".msg.bot:last-child");
-              if (!botEl || botEl.classList.contains("typing-dots")) {{
+              if (!botEl || botEl.classList.contains("typing-dots")) {
                 addMsg("bot", d.token);
-              }} else {{
+              } else {
                 botEl.textContent += d.token;
-              }}
-            }} else if (d.answer) {{
+              }
+            } else if (d.answer) {
               remTyping();
               answer = d.answer;
               var botEl = msgId.querySelector(".msg.bot:last-child");
-              if (botEl && !botEl.classList.contains("typing-dots")) {{
+              if (botEl && !botEl.classList.contains("typing-dots")) {
                 botEl.textContent = d.answer;
-              }} else {{
+              } else {
                 addMsg("bot", d.answer);
-              }}
-              if (d.sources && d.sources.length) {{
+              }
+              if (d.sources && d.sources.length) {
                 var s = document.createElement("div");
                 s.className = "src";
-                s.textContent = "{sources} " + d.sources.join(", ");
+                s.textContent = W_SOURCES + d.sources.join(", ");
                 var lastBot = msgId.querySelector(".msg.bot:last-child");
                 if (lastBot) lastBot.appendChild(s);
-              }}
-              if (d.urls && d.urls.length) {{
+              }
+              if (d.urls && d.urls.length) {
                 var links = document.createElement("div");
                 links.className = "page-links";
-                links.innerHTML = d.urls.map(function(u) {{
+                links.innerHTML = d.urls.map(function(u) {
                   return '<a href="' + u.url + '" target="_blank" class="page-link">' + u.title + '</a>';
-                }}).join("");
+                }).join("");
                 var lastBot = msgId.querySelector(".msg.bot:last-child");
                 if (lastBot) lastBot.appendChild(links);
-              }}
+              }
               var mId = d.message_id;
-              if (mId) {{
+              if (mId) {
                 var fr = document.createElement("div");
                 fr.className = "feedback-row";
                 var up = document.createElement("button");
                 up.textContent = "\uD83D\uDC4D";
-                up.title = "{helpful}";
-                up.onclick = function() {{ feedback(mId, 1, fr); }};
+                up.title = W_HELPFUL;
+                up.onclick = function() { feedback(mId, 1, fr); };
                 var down = document.createElement("button");
                 down.textContent = "\uD83D\uDC4E";
-                down.title = "{not_helpful}";
-                down.onclick = function() {{ feedback(mId, -1, fr); }};
+                down.title = W_NOT_HELPFUL;
+                down.onclick = function() { feedback(mId, -1, fr); };
                 fr.appendChild(up);
                 fr.appendChild(down);
                 var lastBot2 = msgId.querySelector(".msg.bot:last-child");
@@ -218,94 +234,94 @@
 
                 var suggestionsUrl = "/api/" + BRAND + "/suggestions/" + mId;
                 pollSuggestions(suggestionsUrl, fr);
-              }}
-            }}
-          }} catch(e) {{}}
-        }}
-      }}
-    }};
+              }
+            }
+          } catch(e) {}
+        }
+      }
+    };
 
-    xhr.onloadend = function() {{
+    xhr.onloadend = function() {
       remTyping();
-    }};
+    };
 
-    xhr.send(JSON.stringify({{ message: text, session_id: SESSION_ID, stream: true, language: CURRENT_LANG }}));
-  }}
+    xhr.send(JSON.stringify({ message: text, session_id: SESSION_ID, stream: true, language: CURRENT_LANG }));
+  }
 
-  function toggleWidget(show) {{
+  function toggleWidget(show) {
     var box = document.getElementById("widget-box");
     var btn = document.getElementById("toggle-btn");
-    if (show) {{
+    if (show) {
       box.classList.add("open");
       btn.style.display = "none";
-    }} else {{
+    } else {
       box.classList.remove("open");
       btn.style.display = "flex";
-    }}
-  }}
+    }
+  }
 
-  document.getElementById("toggle-btn").addEventListener("click", function() {{ toggleWidget(true); }});
-  document.getElementById("minimize-btn").addEventListener("click", function() {{ toggleWidget(false); }});
+  document.getElementById("toggle-btn").addEventListener("click", function() { toggleWidget(true); });
+  document.getElementById("minimize-btn").addEventListener("click", function() { toggleWidget(false); });
   document.getElementById("send").addEventListener("click", send);
-  document.getElementById("input").addEventListener("keydown", function(e) {{ if (e.key === "Enter") send(); }});
-  document.getElementById("lang-select").addEventListener("change", function(e) {{ changeLanguage(e.target.value); }});
+  document.getElementById("input").addEventListener("keydown", function(e) { if (e.key === "Enter") send(); });
+  document.getElementById("lang-select").addEventListener("change", function(e) { changeLanguage(e.target.value); });
 
-  // Initialize language from localStorage (overrides brand default)
-  if (CURRENT_LANG !== "{language}") {{
+  if (CURRENT_LANG !== W_LANG) {
     changeLanguage(CURRENT_LANG);
-  }}
+  }
 
-  function feedback(msgId, rating, row) {{
+  function feedback(msgId, rating, row) {
     var xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/" + BRAND + "/feedback");
     xhr.setRequestHeader("Content-Type", "application/json");
-    xhr.onload = function() {{
-      if (xhr.status === 200) {{
-        row.innerHTML = '<span class="feedback-thanks">' + (rating === 1 ? getLabel("feedback_thanks") : getLabel("feedback_improve")) + '</span>';
-      }}
-    }};
-    xhr.send(JSON.stringify({{ message_id: msgId, rating: rating, session_id: SESSION_ID }}));
-  }}
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        row.innerHTML = '<span class="feedback-thanks">' + (rating === 1 ? W_FEEDBACK_THANKS : W_FEEDBACK_IMPROVE) + '</span>';
+      }
+    };
+    xhr.send(JSON.stringify({ message_id: msgId, rating: rating, session_id: SESSION_ID }));
+  }
 
-  function pollSuggestions(url, afterEl) {{
+  function pollSuggestions(url, afterEl) {
     var attempts = 0;
     var maxAttempts = 10;
-    var interval = setInterval(function() {{
+    var interval = setInterval(function() {
       attempts++;
       var xhr = new XMLHttpRequest();
       xhr.open("GET", url);
-      xhr.onload = function() {{
-        if (xhr.status === 200) {{
-          try {{
+      xhr.onload = function() {
+        if (xhr.status === 200) {
+          try {
             var data = JSON.parse(xhr.responseText);
-            if (data.suggestions && data.suggestions.length) {{
+            if (data.suggestions && data.suggestions.length) {
               clearInterval(interval);
               var wrap = document.createElement("div");
               wrap.className = "suggestions";
-              for (var i = 0; i < data.suggestions.length; i++) {{
+              for (var i = 0; i < data.suggestions.length; i++) {
                 var chip = document.createElement("span");
                 chip.className = "chip";
                 chip.textContent = data.suggestions[i];
-                chip.onclick = function() {{
+                chip.onclick = function() {
                   document.getElementById("input").value = this.textContent;
                   send();
-                }};
+                };
                 wrap.appendChild(chip);
-              }}
+              }
               afterEl.parentNode.appendChild(wrap);
-            }}
-          }} catch(e) {{}}
-        }}
-      }};
+            }
+          } catch(e) {}
+        }
+      };
       xhr.send();
       if (attempts >= maxAttempts) clearInterval(interval);
-    }}, 1500);
-  }}
+    }, 1500);
+  }
 
-  window.addEventListener("error", function() {{
-    addMsg("bot", "{network_error}");
-  }});
-}})();
+  window.addEventListener("error", function() {
+    addMsg("bot", W_NETWORK_ERROR);
+  });
+})();
+{% endraw %}
 </script>
 </body>
 </html>

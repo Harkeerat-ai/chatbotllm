@@ -22,7 +22,7 @@ def tracking_test_env(tmp_path, monkeypatch):
     monkeypatch.setattr(chroma_client, "get_client", lambda: chromadb.Client())
     monkeypatch.setattr(chroma_client, "_build_embedding_function", lambda: None)
 
-    import app.ollama_client as ollama_client
+    import app.llm_client as llm_client
 
     llm_calls: dict = {"rag": False, "rag_context": ""}
 
@@ -33,7 +33,7 @@ def tracking_test_env(tmp_path, monkeypatch):
             return ("__FAQ_RAG_ANSWER__", 1)
         return ("Your KALP order is on its way.", 1)
 
-    monkeypatch.setattr(ollama_client.ollama, "chat", fake_chat)
+    monkeypatch.setattr(llm_client.llm, "chat", fake_chat)
 
     from app.db import init_db, SessionLocal
 

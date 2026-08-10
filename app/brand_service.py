@@ -30,6 +30,7 @@ class BrandService:
         return brand
 
     def create(self, db: Session, slug: str, name: str, description: str = "", language: str = "en") -> models.Brand:
+        name = re.sub(r'[{}]', '', name)
         brand = models.Brand(slug=slugify(slug), name=name, description=description, language=language)
         db.add(brand)
         db.commit()
@@ -46,7 +47,7 @@ class BrandService:
 
     def update(self, db: Session, brand: models.Brand, name: str | None = None, description: str | None = None, language: str | None = None) -> models.Brand:
         if name is not None:
-            brand.name = name
+            brand.name = re.sub(r'[{}]', '', name)
         if description is not None:
             brand.description = description
         if language is not None:
@@ -63,6 +64,7 @@ class BrandService:
             data = json.loads(brand.widget_config_json) if brand.widget_config_json else {}
         except (json.JSONDecodeError, TypeError):
             data = {}
+        data = {k: v for k, v in data.items() if v != ""}
         return WidgetConfig(**data)
 
     def update_widget_config(self, db: Session, brand_slug: str, updates: dict) -> WidgetConfig:
@@ -72,6 +74,8 @@ class BrandService:
             "show_think_fast", "input_placeholder",
         }
         TEXT_FIELDS = {"title", "welcome_message", "input_placeholder"}
+        COLOR_FIELDS = {"accent_color", "bg_color"}
+        _CSS_SAFE = re.compile(r'^[a-zA-Z#0-9][a-zA-Z0-9#(),\s%.\-]*$')
         brand = db.query(models.Brand).filter_by(slug=brand_slug).first()
         if not brand:
             from fastapi import HTTPException
@@ -86,6 +90,8 @@ class BrandService:
                 continue
             if isinstance(v, str) and k in TEXT_FIELDS:
                 v = re.sub(r'<[^>]*>', '', v)
+            if isinstance(v, str) and k in COLOR_FIELDS:
+                v = v if _CSS_SAFE.match(v) else ""
             sanitized[k] = v
         current.update(sanitized)
         brand.widget_config_json = json.dumps(current)

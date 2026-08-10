@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = "change-me-now"
     session_secret: str = "replace-with-a-long-random-string"
+    csrf_secret: str = "replace-with-a-different-random-string"
     allow_unverified_tracking: bool = False
 
     # Cloud LLM (Groq)
@@ -48,6 +49,10 @@ class Settings(BaseSettings):
     crawler_timeout: int = 10
     allowed_crawl_domains: list[str] = Field(
         [], description="Domains allowed for crawling even if they resolve to private IPs"
+    )
+
+    cors_origins: list[str] = Field(
+        ["http://localhost:8000"], description="Allowed CORS origins (restrict in production)"
     )
 
 

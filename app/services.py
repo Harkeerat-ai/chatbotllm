@@ -12,7 +12,7 @@ All services are now defined in domain-specific modules under app/:
   brand_service.py    BrandService (brand CRUD)
 """
 
-from app.ollama_client import ollama  # noqa: F401
+from app.llm_client import llm  # noqa: F401
 from app.rag_service import rag_service  # noqa: F401
 from app.tracking_service import tracking_service  # noqa: F401
 from app.ingestion_service import ingestion_service  # noqa: F401

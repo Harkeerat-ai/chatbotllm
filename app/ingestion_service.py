@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.chroma_client import get_collection, delete_collection
 from app.config import get_settings
-from app.ollama_client import ollama
+from app.llm_client import llm
 from app.utils import chunk_text, make_chroma_id
 from app.observability import INGEST_LATENCY, INGEST_BATCHES
 
@@ -335,10 +335,11 @@ class IngestionService:
         db.commit()
 
         collection = get_collection(brand.slug)
-        collection.update(
-            ids=custom_ids,
-            metadatas=[json.loads(r.metadata_json) for r in chunk_rows],
-        )
+        if chunk_rows:
+            collection.update(
+                ids=custom_ids,
+                metadatas=[json.loads(r.metadata_json) for r in chunk_rows],
+            )
 
         source.chunk_count = count
         db.commit()

@@ -47,7 +47,7 @@ from app.observability import (
 from app.config import get_settings
 from app.conversation import state_machine, MAX_TRACKING_RETRIES
 from app.conversation_repository import conversation_repo
-from app.ollama_client import ollama
+from app.llm_client import llm
 from app.tracking_service import tracking_service
 from app.utils import chunk_text, make_chroma_id
 
@@ -132,6 +132,31 @@ class RAGService:
         # 4. State-machine-driven tracking flow
         ctx = state_machine.get_context(db, conv.id)
         _lang = _resolve_language(brand, language)
+
+        NON_TRACKING_PHRASES = [
+            "password", "create account", "register", "login", "sign in",
+            "return policy", "refund", "cancel order",
+            "ingredients", "nutrition", "calories", "allergen", "gluten",
+            "gift", "diwali", "festival", "corporate",
+            "price", "cost", "rupees",
+            "flavor", "flavour", "taste", "bestseller",
+            "mean", "kalp stand for",
+            "organic", "vegan", "sugar", "cocoa", "cacao",
+            "chocolate", "health", "benefits", "recipe",
+            "store", "shop", "buy", "purchase",
+            "contact", "whatsapp", "email", "phone",
+            "shahid", "safe", "halal",
+            "weight", "grams", "gram",
+            "packaging", "box", "contain",
+            "review", "rating",
+        ]
+        msg_lower = user_message.lower()
+        if any(p in msg_lower for p in NON_TRACKING_PHRASES):
+            lv, lt, lc = self._safe_extract_lookup(user_message)
+            if not (lv and lc >= 80):
+                logger.info("Non-tracking phrase detected — bypassing tracking flow")
+                state_machine.reset(db, ctx)
+                # Fall through to RAG below
 
         try:
             if state_machine.is_tracking_active(ctx):
@@ -462,7 +487,7 @@ class RAGService:
         if _lang != "en":
             system_prompt += f" Respond in {_lang}."
         t_llm_start = time.monotonic()
-        answer, latency_ms = await ollama.chat(system_prompt, llm_messages, context)
+        answer, latency_ms = await llm.chat(system_prompt, llm_messages, context)
         t_llm = time.monotonic() - t_llm_start
         logger.info("Timing: llm=%.2fs (ollama latency=%dms)", t_llm, latency_ms)
 
@@ -1002,7 +1027,7 @@ class RAGService:
         if _lang != "en":
             system_prompt += f" Respond in {_lang}."
         context_str = json.dumps(tracking_data, indent=2)
-        answer, _ = await ollama.chat(system_prompt, history[-4:], context_str, append_rag_instruction=False)
+        answer, _ = await llm.chat(system_prompt, history[-4:], context_str, append_rag_instruction=False)
 
         if not answer or not answer.strip() or answer.startswith("[Ollama") or answer.startswith("I currently can't"):
             fallback = self._template_tracking_response(tracking_data)
@@ -1070,7 +1095,7 @@ class RAGService:
             topic_list = ", ".join(list(topics)[:3])
             prompt = get_prompt("clarification_prompt", language).format(topic_list=topic_list, brand_name=brand_name)
             system = get_prompt("clarification_system", language)
-            answer, _ = await ollama.chat(system, [], prompt, append_rag_instruction=False)
+            answer, _ = await llm.chat(system, [], prompt, append_rag_instruction=False)
             if answer and not answer.startswith("["):
                 return answer.strip()
             return get_prompt("clarification_fallback", language).format(topic_list=topic_list)
@@ -1363,7 +1388,7 @@ class RAGService:
         t_llm = time.monotonic()
 
         try:
-            async for chunk in ollama.stream_chat(
+            async for chunk in llm.stream_chat(
                 system_prompt, llm_messages, context, append_rag_instruction=True,
             ):
                 if chunk.startswith("["):
@@ -1440,7 +1465,7 @@ async def _summarize_conversation_async(
         dialog = "\n".join(f"{m.role}: {m.content[:200]}" for m in older)
         prompt = get_prompt("summarization_prompt", language).format(dialog=dialog)
         system = get_prompt("summarization_system", language).format(brand_name=brand_name)
-        summary, _ = await ollama.chat(system, [], prompt, append_rag_instruction=False)
+        summary, _ = await llm.chat(system, [], prompt, append_rag_instruction=False)
         if summary and not summary.startswith("["):
             conv.summary_json = json.dumps({"summary": summary.strip(), "message_count": len(older)})
             db.commit()
@@ -1464,7 +1489,7 @@ async def _generate_suggestions_async(
             {"role": "user", "content": user_message},
             {"role": "assistant", "content": answer},
         ]
-        suggestions_str, _ = await ollama.chat(
+        suggestions_str, _ = await llm.chat(
             prompt, recent, "", append_rag_instruction=False,
         )
         suggestions_str = suggestions_str.strip()

@@ -35,6 +35,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
+from markupsafe import Markup
 
 import hashlib
 import html
@@ -47,6 +48,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from limits import strategies as _rl_strategies, storage as _rl_storage, RateLimitItemPerMinute
@@ -152,15 +154,14 @@ async def lifespan(_app: FastAPI):
             db.close()
         _started = True
         if settings.admin_password == "change-me-now":
-            logger.warning("Using default admin_password — set ADMIN_PASSWORD in .env")
+            raise RuntimeError("ADMIN_PASSWORD must be changed from the default. Set ADMIN_PASSWORD in .env")
         if settings.session_secret == "replace-with-a-long-random-string":
-            logger.warning("Using default session_secret — set SESSION_SECRET in .env")
+            raise RuntimeError("SESSION_SECRET must be changed from the default. Set SESSION_SECRET in .env")
+        if settings.csrf_secret == "replace-with-a-different-random-string":
+            raise RuntimeError("CSRF_SECRET must be changed from the default. Set CSRF_SECRET in .env")
         api_key = create_initial_api_key(db)
         if api_key:
-            logger.info("=" * 60)
-            logger.info("API key generated: %s...%s", api_key[:8], api_key[-4:])
-            logger.info("Store this key securely — it will not be shown again.")
-            logger.info("=" * 60)
+            logger.info("API key generated (use the API key header for authenticated endpoints)")
         logger.info("Agentic RAG Platform initialized.")
         try:
             from app.rag_service import _get_reranker
@@ -168,9 +169,9 @@ async def lifespan(_app: FastAPI):
         except Exception:
             logger.exception("Failed to preload CrossEncoder reranker", exc_info=True)
         try:
-            from app.ollama_client import ollama
+            from app.llm_client import llm
 
-            await ollama.warmup()
+            await llm.warmup()
         except Exception:
             logger.exception("Failed to verify LLM API key", exc_info=True)
         try:
@@ -211,15 +212,33 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret,
     max_age=3600,
-    https_only=False,
+    https_only=True,
     same_site="lax",
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-CSRF-Token"],
 )
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+STATIC_DIR.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# Patch Set-Cookie to add HttpOnly; Secure flags (Starlette SessionMiddleware doesn't set them)
+@app.middleware("http")
+async def _patch_session_cookie(request: Request, call_next):
+    response = await call_next(request)
+    if "set-cookie" in response.headers:
+        raw = response.headers["Set-Cookie"]
+        if "session=" in raw and "HttpOnly" not in raw:
+            raw = raw.rstrip(";") + "; HttpOnly"
+        if "session=" in raw and "Secure" not in raw:
+            raw = raw.rstrip(";") + "; Secure"
+        response.headers["Set-Cookie"] = raw
+    return response
 
 
 # ─── Security headers middleware ────────────────────────────────────────────────
@@ -231,6 +250,15 @@ async def _security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "0"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data:; "
+        "form-action 'self'; "
+        "base-uri 'self'"
+    )
     return response
 
 
@@ -255,16 +283,26 @@ _jinja_env = Environment(
 )
 
 
+def _js_escape(val: str) -> str:
+    return (val
+            .replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+            .replace("</", "<\\/"))
 
-def _load_template(name: str) -> str:
-    return (TEMPLATES_DIR / name).read_text(encoding="utf-8")
+
+_jinja_env.filters["js_string"] = lambda v: Markup(_js_escape(str(v)))
+
+
 
 
 def _generate_csrf_token(request: Request) -> str:
     from itsdangerous import URLSafeSerializer
     if "csrf_secret" not in request.session:
         request.session["csrf_secret"] = secrets.token_hex(16)
-    serializer = URLSafeSerializer(settings.session_secret, salt="csrf")
+    serializer = URLSafeSerializer(settings.csrf_secret, salt="csrf")
     return serializer.dumps({"sid": request.session["csrf_secret"]})
 
 
@@ -273,7 +311,7 @@ def _validate_csrf_token(request: Request, token: str) -> bool:
     sid = request.session.get("csrf_secret", "")
     if not sid:
         return False
-    serializer = URLSafeSerializer(settings.session_secret, salt="csrf")
+    serializer = URLSafeSerializer(settings.csrf_secret, salt="csrf")
     try:
         data = serializer.loads(token)
         return data.get("sid", "") == sid
@@ -283,7 +321,15 @@ def _validate_csrf_token(request: Request, token: str) -> bool:
 
 def _check_csrf(request: Request, form: dict | None = None):
     import json
-    token = (form or request.session).get("csrf_token", "")
+    token = ""
+    if form:
+        token = form.get("csrf_token", "")
+    if not token:
+        token = request.headers.get("X-CSRF-Token", "")
+    if not token:
+        token = request.query_params.get("csrf_token", "")
+    if not token:
+        token = request.session.get("csrf_token", "")
     session_csrf = request.session.get("csrf_secret", "")
     logger.debug("CSRF_DEBUG token_present=%s token_len=%d session_csrf_present=%s session_keys=%s",
         "yes" if token else "no", len(token) if token else 0,
@@ -468,6 +514,10 @@ async def chat_stream(brand_slug: str, req: ChatRequest, request: Request, db: S
 @limiter.limit("5/minute")
 def capture_lead(brand_slug: str, request: Request, lead: LeadCreate, db: Session = Depends(get_db)):
     brand = _get_brand(brand_slug, db)
+    if lead.session_id:
+        conv = db.query(models.Conversation).filter_by(brand_id=brand.id, session_id=lead.session_id).first()
+        if not conv:
+            raise HTTPException(400, "Invalid session_id — conversation not found")
     db_lead = models.Lead(
         brand_id=brand.id,
         session_id=lead.session_id,
@@ -562,6 +612,7 @@ def tracking_refresh(
     db: Session = Depends(get_db),
 ):
     _require_admin(request)
+    _check_csrf(request)
     brand = _get_brand(brand_slug, db)
     shipment = db.query(models.Shipment).filter_by(id=shipment_id, brand_id=brand.id).first()
     if not shipment:
@@ -579,6 +630,7 @@ def tracking_recalculate_eta(
     db: Session = Depends(get_db),
 ):
     _require_admin(request)
+    _check_csrf(request)
     brand = _get_brand(brand_slug, db)
     shipment = db.query(models.Shipment).filter_by(id=shipment_id, brand_id=brand.id).first()
     if not shipment:
@@ -595,6 +647,7 @@ def tracking_override(
     db: Session = Depends(get_db),
 ):
     _require_admin(request)
+    _check_csrf(request)
     brand = _get_brand(brand_slug, db)
     shipment = db.query(models.Shipment).filter_by(id=shipment_id, brand_id=brand.id).first()
     if not shipment:
@@ -679,8 +732,10 @@ async def ingest_pdf(
 # ─── FAQ ingestion ────────────────────────────────────────────────────────────
 
 @app.post("/api/{brand_slug}/ingest/faq", response_model=IngestResponse, tags=["Knowledge Base"], summary="Ingest FAQ items (JSON or CSV)")
+@limiter.limit("3/minute")
 async def ingest_faq(
     brand_slug: str,
+    request: Request,
     background_tasks: BackgroundTasks,
     source_name: str = Form("FAQ Import"),
     file: UploadFile | None = File(None),
@@ -795,7 +850,8 @@ def list_brands(db: Session = Depends(get_db), brand_slug: str = "default", _: m
 
 
 @app.post("/api/brands", response_model=BrandOut, tags=["Brands"], summary="Create a new brand")
-def create_brand(req: BrandCreate, db: Session = Depends(get_db), _: models.ApiToken = Depends(require_api_key)):
+@limiter.limit("5/minute")
+def create_brand(req: BrandCreate, request: Request, db: Session = Depends(get_db), _: models.ApiToken = Depends(require_api_key)):
     existing = db.query(models.Brand).filter_by(slug=req.slug).first()
     if existing:
         raise HTTPException(409, f"Brand '{req.slug}' already exists")
@@ -879,18 +935,17 @@ def admin_analytics(request: Request, days: int = 30, db: Session = Depends(get_
         "total_leads": sum(d["total_leads"] for d in all_data.values()),
         "avg_latency": round(sum(d["avg_latency_ms"] for d in all_data.values()) / max(len(all_data), 1), 1),
     }
-    html = _load_template("admin_analytics.html").format(
+    html = _jinja_env.get_template("admin_analytics.html").render(
         total_chats=totals["total_chats"],
         total_leads=totals["total_leads"],
         avg_latency=totals["avg_latency"],
         days=days,
-        days_links="".join(
-            f'<span class="active">{d}d</span>' if d == days else f'<a href="/admin/analytics?days={d}">{d}d</a>'
+        days_links=Markup("").join(
+            Markup('<span class="active">{0}d</span>' if d == days else '<a href="/admin/analytics?days={0}">{0}d</a>').format(d)
             for d in (7, 30, 90)
         ),
-        brands_json=json.dumps(list(all_data.keys())),
-        detailed_json=json.dumps(all_data),
-        year=datetime.now(timezone.utc).year,
+        brands=list(all_data.keys()),
+        detailed=all_data,
     )
     return HTMLResponse(html)
 
@@ -946,6 +1001,7 @@ def get_widget_config(brand_slug: str, db: Session = Depends(get_db), _: models.
 def update_widget_config(brand_slug: str, cfg: WidgetConfig, request: Request, db: Session = Depends(get_db)):
     _get_brand(brand_slug, db)
     _require_admin(request)
+    _check_csrf(request)
     return brand_service.update_widget_config(db, brand_slug, cfg.model_dump())
 
 
@@ -961,7 +1017,14 @@ def widget(brand_slug: str, db: Session = Depends(get_db)):
     brand = _get_brand(brand_slug, db)
     cfg = brand_service.get_widget_config(db, brand_slug)
     safe_logo_url = html.escape(cfg.logo_url or "")
-    logo_html = f'<img src="{safe_logo_url}" alt="Logo" style="height:24px;border-radius:4px;">' if cfg.logo_url else ""
+    if cfg.logo_url:
+        logo_html = f'<img src="{safe_logo_url}" alt="Logo" style="height:24px;border-radius:4px;">'
+    else:
+        logo_html = f'''<svg viewBox="0 0 24 24" width="24" height="24" fill="{cfg.accent_color}" style="display:block;">
+  <ellipse cx="12" cy="12" rx="9" ry="10"/>
+  <path d="M12 2c-3 0-6 3.5-6 10s3 10 6 10" fill="none" stroke="rgba(0,0,0,0.2)" stroke-width="1.5"/>
+  <path d="M11.5 2v2.5" stroke="rgba(0,0,0,0.2)" stroke-width="1.2" stroke-linecap="round"/>
+</svg>'''
     title_text = html.escape(cfg.title or brand_slug)
     from app.prompts import get_widget_labels, WIDGET_LABELS
     from app.translations import is_rtl, SUPPORTED_LANGUAGES
@@ -982,18 +1045,9 @@ def widget(brand_slug: str, db: Session = Depends(get_db)):
     def _safe_css(val: str, default: str) -> str:
         return val if val and _SAFE_CSS_RE.match(val) else default
 
-    def _js_escape(val: str) -> str:
-        return (val
-                .replace("\\", "\\\\")
-                .replace('"', '\\"')
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t")
-                .replace("</", "<\\/"))
-
-    html_content = _load_template("widget.html").format(
-        brand=_js_escape(brand_slug),
-        language=_js_escape(brand_language),
+    html_content = _jinja_env.get_template("widget.html").render(
+        brand=brand_slug,
+        language=brand_language,
         direction=direction,
         accent_color=_safe_css(cfg.accent_color, "#f0a500"),
         bg_color=_safe_css(cfg.bg_color, "#0d0d0d"),
@@ -1005,21 +1059,21 @@ def widget(brand_slug: str, db: Session = Depends(get_db)):
         bot_bg_color=_safe_css(cfg.bot_bg_color, "#111"),
         width=cfg.width,
         height=cfg.height,
-        logo_html=logo_html,
+        logo_html=Markup(logo_html),
         title=title_text,
         welcome_message=welcome,
-        assistant=_js_escape(labels.get("assistant", "Assistant")),
-        placeholder=_js_escape(labels.get("placeholder", "Ask a question\u2026")),
-        send=_js_escape(labels.get("send", "Send")),
-        sources=_js_escape(labels.get("sources", "Sources:")),
-        helpful=_js_escape(labels.get("helpful", "Helpful")),
-        not_helpful=_js_escape(labels.get("not_helpful", "Not helpful")),
-        feedback_thanks=_js_escape(labels.get("feedback_thanks", "Thanks for the feedback!")),
-        feedback_improve=_js_escape(labels.get("feedback_improve", "Noted, we'll improve.")),
-        network_error=_js_escape(labels.get("network_error", "Network error \u2014 please try again.")),
-        powered_by=_js_escape(labels.get("powered_by", "powered by RAG")),
+        assistant=labels.get("assistant", "Assistant"),
+        placeholder=labels.get("placeholder", "Ask a question\u2026"),
+        send=labels.get("send", "Send"),
+        sources=labels.get("sources", "Sources:"),
+        helpful=labels.get("helpful", "Helpful"),
+        not_helpful=labels.get("not_helpful", "Not helpful"),
+        feedback_thanks=labels.get("feedback_thanks", "Thanks for the feedback!"),
+        feedback_improve=labels.get("feedback_improve", "Noted, we'll improve."),
+        network_error=labels.get("network_error", "Network error \u2014 please try again."),
+        powered_by=labels.get("powered_by", "powered by RAG"),
+        all_labels_json=Markup(labels_json),
     )
-    html_content = html_content.replace("__ALL_LABELS_JSON__", labels_json)
     return HTMLResponse(html_content)
 
 
@@ -1234,20 +1288,17 @@ def admin_tracking_get(
     return HTMLResponse(_admin_tracking_html(request, db, query=q, brand_slug=brand))
 
 
-@app.get("/admin/tracking/{shipment_id}", response_class=HTMLResponse, tags=["Admin"], summary="Admin shipment detail page")
+@app.get("/admin/tracking/{brand_slug}/{shipment_id}", response_class=HTMLResponse, tags=["Admin"], summary="Admin shipment detail page")
 def admin_tracking_detail_get(
+    brand_slug: str,
     shipment_id: int,
     request: Request,
-    brand_slug: str | None = Query(None, description="Filter by brand slug"),
     db: Session = Depends(get_db),
 ):
     if not request.session.get("admin_logged_in"):
         return HTMLResponse(_jinja_env.get_template("admin_login.html").render(csrf_token=_generate_csrf_token(request), error=""))
-    q = db.query(models.Shipment).filter_by(id=shipment_id)
-    if brand_slug:
-        brand = _get_brand(brand_slug, db)
-        q = q.filter(models.Shipment.brand_id == brand.id)
-    shipment = q.first()
+    brand = _get_brand(brand_slug, db)
+    shipment = db.query(models.Shipment).filter_by(id=shipment_id, brand_id=brand.id).first()
     if not shipment:
         raise HTTPException(404, "Shipment not found")
     return HTMLResponse(_admin_tracking_detail_html(request, db, shipment))

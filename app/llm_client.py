@@ -143,4 +143,4 @@ class LLMClient:
             logger.warning("Groq API check failed: %s", e)
 
 
-ollama = LLMClient()
+llm = LLMClient()

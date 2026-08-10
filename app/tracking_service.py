@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import difflib
+from urllib.parse import quote
 import httpx
 import requests
 from cachetools import TTLCache
@@ -21,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.conversation import state_machine, MAX_TRACKING_RETRIES
-from app.ollama_client import ollama
+
 from app.analytics_service import AnalyticsService
 from app.brand_service import brand_service
 from app.translations import get_text
@@ -933,7 +934,7 @@ class TrackingService:
         provider = shipment.provider
         api_key = os.getenv(provider.api_key_env, "") if provider.api_key_env else ""
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        url = f"{provider.base_url.rstrip('/')}/shipments/{shipment.tracking_number}"
+        url = f"{provider.base_url.rstrip('/')}/shipments/{quote(shipment.tracking_number, safe='')}"
         try:
             with httpx.Client(timeout=httpx.Timeout(5.0, connect=2.0)) as client:
                 response = client.get(url, headers=headers)

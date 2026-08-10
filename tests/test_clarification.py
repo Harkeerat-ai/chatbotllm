@@ -51,12 +51,12 @@ def test_clarification_state_transition(env):
 
 def test_clarification_question_generation(env, monkeypatch):
     from app.rag_service import RAGService
-    import app.ollama_client as ollama_client
+    import app.llm_client as llm_client
 
     async def fake_chat(system, messages, context, append_rag_instruction=True):
         return ("Could you specify which product you're asking about?", 1)
 
-    monkeypatch.setattr(ollama_client.ollama, "chat", fake_chat)
+    monkeypatch.setattr(llm_client.llm, "chat", fake_chat)
 
     svc = RAGService()
     import asyncio

@@ -16,12 +16,31 @@ from sqlalchemy.orm import Session
 from app import models
 from app.chroma_client import get_collection
 from app.config import get_settings
-from app.ollama_client import ollama
+from app.llm_client import llm
 from app.services import ingestion_service
 from app.utils import chunk_text, make_chroma_id
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+class _BlockPrivateIPTransport(httpx.HTTPTransport):
+    """HTTP transport that resolves hostnames at connection time and blocks
+    private / loopback / link-local / unspecified IPs — preventing DNS rebinding
+    attacks where validation- and request-time resolutions differ."""
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        host = request.url.host
+        try:
+            ip = socket.gethostbyname(host)
+        except socket.gaierror:
+            raise ValueError(f"Could not resolve host {host!r}")
+        addr = ipaddress.ip_address(ip)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_unspecified:
+            allowed = getattr(settings, "allowed_crawl_domains", [])
+            if not (allowed and host in allowed):
+                raise ValueError(f"Crawling private/internal IP ({ip}) is not allowed for {host!r}")
+        return super().handle_request(request)
 
 
 def _validate_url_external(url: str) -> None:
@@ -81,11 +100,12 @@ class CrawlerService:
             visited.add(current_url)
 
             try:
-                resp = httpx.get(
-                    current_url,
-                    timeout=settings.crawler_timeout,
-                    headers={"User-Agent": "AgenticRAG/1.0"},
-                )
+                with httpx.Client(transport=_BlockPrivateIPTransport()) as client:
+                    resp = client.get(
+                        current_url,
+                        timeout=settings.crawler_timeout,
+                        headers={"User-Agent": "AgenticRAG/1.0"},
+                    )
                 if resp.status_code != 200:
                     continue
                 soup = BeautifulSoup(resp.text, "html.parser")

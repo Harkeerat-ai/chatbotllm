@@ -69,7 +69,7 @@ a:hover{text-decoration:underline}
         <td>{{ s.status_label }}</td>
         <td>{{ s.current_hub }}</td>
         <td>{{ s.eta_date }}</td>
-        <td><a href="/admin/tracking/{{ s.id }}">View</a></td>
+        <td><a href="/admin/tracking/{{ s.brand_slug }}/{{ s.id }}">View</a></td>
       </tr>
     {% endfor %}
     {% else %}

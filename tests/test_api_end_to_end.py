@@ -19,12 +19,12 @@ def test_api_chat_endpoint(tmp_path, monkeypatch):
     monkeypatch.setattr(chroma_client, "_build_embedding_function", lambda: None)
 
     # Provide a deterministic fake LLM response
-    import app.ollama_client as ollama_client
+    import app.llm_client as llm_client
 
     async def fake_chat(system_prompt, messages, context, append_rag_instruction=True):
         return ("__API_FAKE_ANSWER__", 5)
 
-    monkeypatch.setattr(ollama_client.ollama, "chat", fake_chat)
+    monkeypatch.setattr(llm_client.llm, "chat", fake_chat)
 
     # Now import the FastAPI app (after env and monkeypatch) and create a brand
     from app.main import app as fastapi_app
