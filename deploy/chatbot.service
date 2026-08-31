@@ -1,0 +1,21 @@
+[Unit]
+Description=KALP Chatbot API
+After=network.target
+
+[Service]
+Type=simple
+User=chatbot
+Group=chatbot
+WorkingDirectory=/home/chatbot/chatbot
+# NOTE: systemd sets EnvironmentFile=.../.env so uvicorn inherits the config.
+EnvironmentFile=/home/chatbot/chatbot/.env
+ExecStart=/home/chatbot/chatbot/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
