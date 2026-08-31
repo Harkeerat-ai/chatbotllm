@@ -210,6 +210,60 @@ HTTPS.
 
 ---
 
+## Adding more brands (same one backend)
+
+This one VPS backend is multi-brand. Each brand gets its own API routes
+(`/api/{brand_slug}/...`), its own ChromaDB collection, and its own widget
+config/colors. Serving KALP + Vitnrich + Pranada from the single VPS.
+
+**Brand slugs used:** `kalp` (kalp-shop.in, WordPress), `vitnrichchocolate`
+(vitnrich.com, Shopify), `pranada` (pranadabiopharma.com, WordPress).
+
+### 1. CORS (the only config edit that matters)
+CORS is **global**, not per-brand (`CORS_ORIGINS` in `.env`, main.py). All three
+custom domains must be listed:
+
+```
+CORS_ORIGINS=["https://kalp-shop.in","https://chat.kalp-shop.in","https://vitnrich.com","https://pranadabiopharma.com"]
+```
+
+After editing `.env`: `sudo systemctl restart chatbot`.
+
+### 2. Create + brand each brand in the admin panel
+`https://chat.kalp-shop.in/admin` → create Brand per slug → set per-brand
+colors / welcome / language.
+
+### 3. Ingest each brand's knowledge
+Per-brand collection → either use the admin panel's per-brand ingest, or add
+files under `knowledge/<slug>/` (e.g. `knowledge/vitnrichchocolate/faq.json`)
+then re-run `seed.py`.
+
+### 4. Per-site embed snippet (platform-specific)
+The snippet reads `data-brand`, so the same backend serves whichever origin
+embeds it.
+
+**kalp (WordPress Customizer):** no snippet needed — use Customize → KALP Brand
+Settings → Chat Widget → URL + slug `kalp`.
+
+**Vitnrich (Shopify):** Admin → Online Store → Themes → Edit code →
+`theme.liquid` → paste before `</body>`:
+```html
+<script src="https://chat.kalp-shop.in/widget.js" data-brand="vitnrichchocolate" defer></script>
+```
+
+**Pranada (WordPress / Elementor):** simplest is a WPCode ("Insert Headers and
+Footers") snippet added site-wide, or the theme's `footer.php`:
+```html
+<script src="https://chat.kalp-shop.in/widget.js" data-brand="pranada" defer></script>
+```
+
+> **pranada caveat:** confirmed the site is WordPress (Elementor/Divi) and its
+> `<title>` still shows a staging origin (`*.projectstack.in`). The widget origin
+> in CORS must match the **custom domain** (`https://pranadabiopharma.com`)
+> visitors actually use — fix the site's live URL before embedding.
+
+---
+
 ## Component map
 | Component            | Where                            |
 |----------------------|----------------------------------|
@@ -217,7 +271,9 @@ HTTPS.
 | Embeddings           | HuggingFace (cloud) `all-MiniLM-L6-v2` |
 | Reranker             | Local ONNX (auto-download, no key) |
 | Backend API          | Hostinger VPS (FastAPI + SQLite + ChromaDB) |
-| Website              | Hostinger WordPress (Chat Widget URL) |
+| kalp-shop.in         | WordPress, widget via Customizer (slug `kalp`) |
+| vitnrich.com         | Shopify, widget via theme.liquid (slug `vitnrichchocolate`) |
+| pranadabiopharma.com | WordPress, widget via WPCode/footer (slug `pranada`) |
 
 ---
 
