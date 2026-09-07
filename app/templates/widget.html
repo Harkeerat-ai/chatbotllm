@@ -108,7 +108,12 @@ var W_SEND = "{{ send }}";
   var BRAND = W_BRAND;
   var SESSION_ID = "sess_" + Date.now() + "_" + Math.random().toString(36).slice(2,8);
   var ALL_LABELS = W_LABELS;
-  var CURRENT_LANG = localStorage.getItem("rag_lang_" + BRAND) || W_LANG;
+  // Inside a third-party iframe some browsers throw on storage access rather
+  // than returning null, which would abort this whole script. Degrade quietly.
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+  var CURRENT_LANG = lsGet("rag_lang_" + BRAND) || W_LANG;
   var msgId = document.getElementById("messages");
 
   function addMsg(role, text, extra) {
@@ -127,7 +132,7 @@ var W_SEND = "{{ send }}";
 
   function changeLanguage(lang) {
     CURRENT_LANG = lang;
-    localStorage.setItem("rag_lang_" + BRAND, lang);
+    lsSet("rag_lang_" + BRAND, lang);
     var labels = ALL_LABELS[lang] || ALL_LABELS["en"];
     document.documentElement.lang = lang;
     document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";

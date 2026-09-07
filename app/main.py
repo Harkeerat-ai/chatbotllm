@@ -243,22 +243,39 @@ async def _patch_session_cookie(request: Request, call_next):
 
 # ─── Security headers middleware ────────────────────────────────────────────────
 
+def _is_embeddable(path: str) -> bool:
+    """The widget is meant to be framed by brand sites; everything else is not."""
+    return path == "/widget.js" or path.startswith("/widget/")
+
+
 @app.middleware("http")
 async def _security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "0"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src 'self' https://fonts.gstatic.com; "
-        "img-src 'self' data:; "
-        "form-action 'self'; "
-        "base-uri 'self'"
-    )
+
+    csp = [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com",
+        "img-src 'self' data:",
+        "form-action 'self'",
+        "base-uri 'self'",
+    ]
+
+    if _is_embeddable(request.url.path):
+        # X-Frame-Options cannot express an allowlist (ALLOW-FROM is obsolete and
+        # ignored by every current browser), so omit it here and let CSP
+        # frame-ancestors govern which brand sites may embed the widget.
+        allowed = " ".join(settings.cors_origins) if settings.cors_origins else "'none'"
+        csp.append(f"frame-ancestors {allowed}")
+    else:
+        response.headers["X-Frame-Options"] = "DENY"
+        csp.append("frame-ancestors 'none'")
+
+    response.headers["Content-Security-Policy"] = "; ".join(csp)
     return response
 
 
@@ -1081,23 +1098,46 @@ def widget(brand_slug: str, db: Session = Depends(get_db)):
 def widget_js():
     js = """
 (function() {
+  // document.currentScript is null when the tag is async/deferred or the script
+  // is re-executed, so fall back to locating our own tag by src.
   var s = document.currentScript;
-  var brand = s.dataset.brand || "default";
-  var pos = s.dataset.position || "bottom-right";
-  var w = s.dataset.width || "420px";
-  var h = s.dataset.height || "600px";
+  if (!s) {
+    var all = document.getElementsByTagName("script");
+    for (var i = all.length - 1; i >= 0; i--) {
+      if (all[i].src && all[i].src.indexOf("/widget.js") !== -1) { s = all[i]; break; }
+    }
+  }
+  if (!s) return;
+
+  var d = s.dataset || {};
+  var brand = d.brand || "default";
+  var pos = d.position || "bottom-right";
+  var w = d.width || "420px";
+  var h = d.height || "600px";
   var parts = pos.split("-");
   var v = parts[0] || "bottom";
   var hz = parts[1] || "right";
+
+  // The parent page is a different origin than the chatbot, so the iframe src
+  // must be absolute — a relative "/widget/x" would resolve against the host site.
+  var origin;
+  try { origin = new URL(s.src, document.baseURI).origin; }
+  catch (e) { origin = ""; }
+
   var iframe = document.createElement("iframe");
-  iframe.src = "/widget/" + brand;
+  iframe.src = origin + "/widget/" + brand;
+  iframe.title = "Chat widget";
   var css = "position:fixed;border:none;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.4);z-index:9999;width:" + w + ";height:" + h + ";";
   if (v === "bottom") css += "bottom:20px;";
   else css += "top:20px;";
   if (hz === "right") css += "right:20px;";
   else css += "left:20px;";
   iframe.style.cssText = css;
-  document.body.appendChild(iframe);
+
+  // Guard against the script running in <head> before <body> exists.
+  function mount() { document.body.appendChild(iframe); }
+  if (document.body) mount();
+  else document.addEventListener("DOMContentLoaded", mount);
 })();
 """
     return Response(content=js, media_type="application/javascript")
