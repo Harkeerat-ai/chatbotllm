@@ -1,289 +1,92 @@
-# KALP Chatbot — Hostinger VPS Deployment (OpenRouter + HuggingFace)
+# Hostinger VPS — server build-out (Dokploy)
 
-This is the complete manual for standing up the KALP chatbot backend on your own
-Hostinger VPS. The WordPress site stays on your existing shared hosting; the VPS
-runs only the FastAPI + ChromaDB bot. The answer model is **OpenRouter**
-(`meta-llama/llama-3.3-70b-instruct`); embeddings are **HuggingFace**
-(`all-MiniLM-L6-v2`).
+How the current server was built, and how to rebuild it. For day-to-day
+deploys see `GO_LIVE_RUNBOOK.md`.
 
-Most steps are automated by `deploy/provision.sh`; this doc explains each part
-so you understand what it does and can fix issues.
+> Supersedes the earlier systemd + nginx + certbot approach. `provision.sh`,
+> `chatbot.service`, and `chatbot-nginx.conf` are legacy and unused.
 
----
+## Server
 
-## Phase 0 — Buy the VPS
-1. hostinger.com -> **Hosting -> VPS**.
-2. Pick the **KVM 1** plan (1 vCPU, 1 GB RAM — plenty, because the LLM runs in
-   the cloud, not on your VPS).
-3. OS: **Ubuntu 22.04 LTS**.
-4. After purchase Hostinger emails the **root IP**, **password**, and a temp
-   root password.
-5. Note your **public VPS IP** — you will use it for Cloudflare.
+Hostinger KVM 2 — 2 vCPU, 8 GB RAM, 100 GB NVMe, Mumbai.
+`200.234.45.226` / `srv1962056.hstgr.cloud`, Ubuntu 26.04.1 LTS (`resolute`), root.
 
-> Your existing WordPress stays on Hostinger shared hosting. Do NOT cancel it.
+## ⚠️ Dokploy's installer fails on Ubuntu 26.04 — install Docker first
 
----
-
-## Phase 1 — First SSH login
-From your Windows machine (PowerShell / Windows Terminal):
+`install.sh` pins Docker **28.5.0**, which was never published for `resolute`;
+that repo only carries 29.x. The installer dies with:
 
 ```
-ssh root@YOUR_VPS_IP
+ERROR: '28.5.0' not found amongst apt-cache madison results
+...
+docker: not found
+Error: Failed to initialize Docker Swarm
 ```
 
-Enter the root password Hostinger gave you. Then change it:
+It also leaves the docker packages on apt hold. Install Docker manually first —
+the installer skips its own Docker step when `command -v docker` succeeds:
 
-```
-passwd
-```
-
----
-
-## Phase 2 — Automated base setup
-The fastest path is the bundled provisioner. Copy your repo to the VPS (run
-from your local machine):
-
-```
-scp -r C:\Users\Harkeerat Bhasin\OneDrive\Desktop\chatbotllm root@YOUR_VPS_IP:/root/chatbotllm
+```bash
+apt-mark unhold docker-ce docker-ce-cli docker-ce-rootless-extras
+apt-get install -y docker-ce docker-ce-cli containerd.io \
+                   docker-buildx-plugin docker-compose-plugin
+systemctl enable --now docker
 ```
 
-Then on the VPS:
+## Build order
 
-```
-cd /root/chatbotllm
-bash deploy/provision.sh
-```
+```bash
+# 1. Docker DNS — write BEFORE Docker's first start, or in-container
+#    builds fail to resolve hostnames on this provider.
+mkdir -p /etc/docker
+echo '{"dns": ["1.1.1.1", "8.8.8.8"]}' > /etc/docker/daemon.json
 
-The script will pause for you to fill in `~/.env` (see Phase 4) and to have the
-Cloudflare DNS record ready (Phase 7, before certbot runs).
+# 2. Firewall — allow 22 BEFORE enabling, or you lock yourself out.
+ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp && ufw allow 3000/tcp
+ufw --force enable
 
-If you prefer to run it manually instead, follow the mapping below.
-
----
-
-## Phase 3 — Manual alternative: get the code
-As root:
-
-```
-apt update && apt upgrade -y
-apt install -y python3 python3-pip python3-venv git nginx curl certbot python3-certbot-nginx
-
-useradd -m -s /bin/bash chatbot
-usermod -aG sudo chatbot
-passwd chatbot   # set the app user's password
-
-su - chatbot
-git clone https://github.com/Harkeerat-ai/chatbotllm.git chatbot
-cd chatbot
-python3 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+# 3. Docker (see above), then Dokploy
+curl -sSL https://dokploy.com/install.sh | sh
 ```
 
----
+Then claim the admin account at `http://<IP>:3000` **immediately** — the first
+visitor to reach it owns the instance, and the port is world-reachable.
 
-## Phase 4 — Environment file (`.env`)
-Copy the template and fill it in:
+## Application configuration
 
-```
-cp deploy/kalp.env.example .env
-nano .env
-```
+| Setting | Value |
+|---|---|
+| Source | Git (public URL — no GitHub App, no deploy key) |
+| Repo / branch | `https://github.com/Harkeerat-ai/chatbotllm.git` / `main` |
+| Build type | Nixpacks (reads `Procfile` + `runtime.txt` → Python 3.12) |
+| Port | 3000 (`Procfile` binds `$PORT`, so `PORT=3000` must be set) |
+| Volume | `kalp-chatbot-data` → `/app/data` |
+| Domain | `chat.kalp-shop.in`, HTTPS, Let's Encrypt |
 
-Generate random secrets:
+Nixpacks builds Python **inside the container** from `runtime.txt`. This is why
+Docker was chosen over a native venv: the host runs Python 3.14 and 26.04 has no
+`python3.12` package, so `chromadb`/`torch`/`pymupdf` wheels would not resolve.
 
-```
-python3 -c "import secrets; print(secrets.token_urlsafe(48)); print(secrets.token_urlsafe(48))"
-```
+The first build takes ~10 minutes — it pulls the full PyTorch stack for
+in-process embeddings. Later builds reuse cached layers.
 
-Fill in at minimum:
-- `ADMIN_PASSWORD` — strong admin panel password
-- `SESSION_SECRET` + `CSRF_SECRET` — the two random strings
-- `GROQ_API_KEY` — your **OpenRouter** key (`sk-or-v1-...`)
-- `HF_API_TOKEN` — your HuggingFace read token (`hf_...`)
+## Embeddings run locally, on purpose
 
-`GROQ_*` names are legacy in the code but are just the OpenAI-compatible
-provider slot — they work with OpenRouter unchanged.
+`USE_LOCAL_EMBEDDINGS=true` runs `all-MiniLM-L6-v2` in-process. The alternative
+(`HF_API_TOKEN`) adds a network round trip per query plus cold-start stalls on
+an idle endpoint. OpenRouter has no embeddings endpoint and cannot substitute.
 
----
+Set `HF_HOME=/app/data/hf-cache` so weights land on the volume. The app loads a
+**second** model — a `ms-marco-MiniLM-L6-v2` reranker — so without this, both
+re-download on every container start and the first query after each deploy hangs.
 
-## Phase 5 — Local smoke test
-```
-source venv/bin/activate
-uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
+## Access
 
-In a second terminal:
+SSH key at `~/.ssh/kalp_vps`, aliased `kalpvps` in `~/.ssh/config`.
 
-```
-curl -X POST http://127.0.0.1:8000/api/kalp/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message":"What flavours do you have?","session_id":"test"}'
-```
+## Known-open items
 
-Expect an answer (may say "I don't know" until you ingest knowledge). If your
-`knowledge/kalp/` files are already populated, run the seeder first:
-
-```
-python seed.py
-```
-
-Stop the server with Ctrl+C.
-
----
-
-## Phase 6 — Run as a service
-Install the unit and start it:
-
-```
-sudo cp /home/chatbot/chatbot/deploy/chatbot.service /etc/systemd/system/chatbot.service
-sudo systemctl daemon-reload
-sudo systemctl enable chatbot
-sudo systemctl start chatbot
-sudo systemctl status chatbot        # active (running)
-```
-
-Seed knowledge now (must run as the app user so it writes to the right paths):
-
-```
-sudo -u chatbot /home/chatbot/chatbot/venv/bin/python /home/chatbot/chatbot/seed.py
-```
-
----
-
-## Phase 7 — Cloudflare DNS + Nginx + HTTPS
-
-### 7a. Cloudflare DNS record
-Cloudflare dashboard -> DNS -> Records -> Add record:
-- **Type**: A
-- **Name**: `chat`
-- **IPv4**: your VPS public IP
-- **Proxy status**: **DNS only (grey cloud)**  ← critical
-
-Wait 1–2 minutes for propagation. Because the record is DNS-only, Let's Encrypt
-can reach your Nginx directly to issue the certificate.
-
-> If you ever enable the orange (proxied) cloud, put Cloudflare SSL/TLS mode on
-> **Full (strict)** — the origin serves your Let's Encrypt cert.
-
-### 7b. Install Nginx config
-```
-sudo cp /home/chatbot/chatbot/deploy/chatbot-nginx.conf /etc/nginx/sites-available/chatbot
-sudo ln -sf /etc/nginx/sites-available/chatbot /etc/nginx/sites-enabled/chatbot
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-### 7c. Get the certificate
-```
-sudo certbot --nginx -d chat.kalp-shop.in --agree-tos --redirect
-```
-
-Follow the prompts (email). It configures the cert and the HTTP→HTTPS redirect
-automatically.
-
-### 7d. Verify
-Visit **https://chat.kalp-shop.in/docs** — you should see the FastAPI docs over
-HTTPS.
-
----
-
-## Phase 8 — Wire into WordPress
-1. kalp-shop.in -> wp-admin -> **Appearance -> Customize -> KALP Brand Settings
-   -> Chat Widget**
-2. URL: **`https://chat.kalp-shop.in`** (no trailing slash)
-3. Brand slug: `kalp`
-4. **Save & Publish** — the placeholder disappears, the real widget appears.
-
----
-
-## Phase 9 — Brand & config the widget
-1. Visit **https://chat.kalp-shop.in/admin**
-2. Log in with `ADMIN_USERNAME` / `ADMIN_PASSWORD`
-3. KALP brand -> **Widget Config**:
-   - Colors: gold `#C9A84C`, brown `#1A0A03`, cream `#FFF8EE`
-   - Welcome: "Hi! Ask me about KALP flavours, orders, or anything."
-   - Language: `en`
-4. Save.
-
----
-
-## Adding more brands (same one backend)
-
-This one VPS backend is multi-brand. Each brand gets its own API routes
-(`/api/{brand_slug}/...`), its own ChromaDB collection, and its own widget
-config/colors. Serving KALP + Vitnrich + Pranada from the single VPS.
-
-**Brand slugs used:** `kalp` (kalp-shop.in, WordPress), `vitnrichchocolate`
-(vitnrich.com, Shopify), `pranada` (pranadabiopharma.com, WordPress).
-
-### 1. CORS (the only config edit that matters)
-CORS is **global**, not per-brand (`CORS_ORIGINS` in `.env`, main.py). All three
-custom domains must be listed:
-
-```
-CORS_ORIGINS=["https://kalp-shop.in","https://chat.kalp-shop.in","https://vitnrich.com","https://pranadabiopharma.com"]
-```
-
-After editing `.env`: `sudo systemctl restart chatbot`.
-
-### 2. Create + brand each brand in the admin panel
-`https://chat.kalp-shop.in/admin` → create Brand per slug → set per-brand
-colors / welcome / language.
-
-### 3. Ingest each brand's knowledge
-Per-brand collection → either use the admin panel's per-brand ingest, or add
-files under `knowledge/<slug>/` (e.g. `knowledge/vitnrichchocolate/faq.json`)
-then re-run `seed.py`.
-
-### 4. Per-site embed snippet (platform-specific)
-The snippet reads `data-brand`, so the same backend serves whichever origin
-embeds it.
-
-**kalp (WordPress Customizer):** no snippet needed — use Customize → KALP Brand
-Settings → Chat Widget → URL + slug `kalp`.
-
-**Vitnrich (Shopify):** Admin → Online Store → Themes → Edit code →
-`theme.liquid` → paste before `</body>`:
-```html
-<script src="https://chat.kalp-shop.in/widget.js" data-brand="vitnrichchocolate" defer></script>
-```
-
-**Pranada (WordPress / Elementor):** simplest is a WPCode ("Insert Headers and
-Footers") snippet added site-wide, or the theme's `footer.php`:
-```html
-<script src="https://chat.kalp-shop.in/widget.js" data-brand="pranada" defer></script>
-```
-
-> **pranada caveat:** confirmed the site is WordPress (Elementor/Divi) and its
-> `<title>` still shows a staging origin (`*.projectstack.in`). The widget origin
-> in CORS must match the **custom domain** (`https://pranadabiopharma.com`)
-> visitors actually use — fix the site's live URL before embedding.
-
----
-
-## Component map
-| Component            | Where                            |
-|----------------------|----------------------------------|
-| Answer model         | OpenRouter (cloud) `llama-3.3-70b-instruct` |
-| Embeddings           | HuggingFace (cloud) `all-MiniLM-L6-v2` |
-| Reranker             | Local ONNX (auto-download, no key) |
-| Backend API          | Hostinger VPS (FastAPI + SQLite + ChromaDB) |
-| kalp-shop.in         | WordPress, widget via Customizer (slug `kalp`) |
-| vitnrich.com         | Shopify, widget via theme.liquid (slug `vitnrichchocolate`) |
-| pranadabiopharma.com | WordPress, widget via WPCode/footer (slug `pranada`) |
-
----
-
-## Troubleshooting
-- **Mixed-content blocked in browser widget**: the Customizer URL or DNS still
-  serves plain `http`; use the `https://chat.kalp-shop.in` value.
-- **Chat returns "I don't know"**: knowledge not ingested — run
-  `sudo -u chatbot /home/chatbot/chatbot/venv/bin/python /home/chatbot/chatbot/seed.py`.
-- **418/rate limit on OpenRouter**: top up your OpenRouter credit or lower
-  `DEFAULT_TOP_K`.
-- **Embedding dimension mismatch**: if you ever change `HF_EMBED_MODEL`, delete
-  `./vector_db` and re-seed — query vectors must match the ingested ones.
-- **Check logs**: `journalctl -u chatbot -f` and `sudo tail -f /var/log/nginx/error.log`.
+- Port 3000 is open to the internet. Restrict the ufw rule to a known IP once
+  UI access is no longer needed.
+- Backups: Hostinger takes weekly disk snapshots. There is no separate
+  volume-level backup of `kalp-chatbot-data`.

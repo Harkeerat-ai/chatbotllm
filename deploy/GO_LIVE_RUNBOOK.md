@@ -1,98 +1,93 @@
-# KALP Chatbot — GO-LIVE RUNBOOK (one page)
+# KALP Chatbot — Runbook (Dokploy)
 
-Follow top-to-bottom. Tick each box. Each step lists the command(s) and the
-exact sign it worked. Full detail: `HOSTINGER_VPS.md`.
+The chatbot runs on a **Hostinger KVM 2 VPS under Dokploy** (Docker Swarm +
+Traefik). It is **not** a systemd + nginx deployment.
 
-## 0. Prereqs (you, done BEFORE SSH)
-- [ ] OpenRouter key: openrouter.ai/keys -> Create -> copy `sk-or-v1-...`
-- [ ] HuggingFace token: huggingface.co/settings/tokens -> Read -> `hf_...`
-- [ ] Hostinger KVM2 bought (Ubuntu 22.04) — you have IP + root password
-- [ ] `chatbotllm` repo is pushed: `git log --oneline -1` shows `3694593`
+> The files `provision.sh`, `chatbot.service`, and `chatbot-nginx.conf` in this
+> directory describe the **old, superseded** systemd + nginx approach. They are
+> not used and will not work against the current server. Kept only for history.
 
-## 1. SSH in
-```
-ssh root@YOUR_VPS_IP
-passwd                       # set a new root password
-```
-Went OK: prompt returns, no connection refused.
+## What is running
 
-## 2. Copy repo + one-command setup
-FROM your Windows machine (not the VPS):
-```
-scp -r C:\Users\Harkeerat Bhasin\OneDrive\Desktop\chatbotllm root@YOUR_VPS_IP:/root/chatbotllm
-```
-THEN on the VPS:
-```
-cd /root/chatbotllm && bash deploy/provision.sh
-```
-Went OK: script installs deps, shows `API responding OK on 127.0.0.1:8000`,
-certbot completes, prints DONE.
+| | |
+|---|---|
+| VPS | `200.234.45.226` (`srv1962056.hstgr.cloud`), Ubuntu 26.04 |
+| Public URL | https://chat.kalp-shop.in |
+| Dokploy UI | http://200.234.45.226:3000 |
+| App | `kalp-chatbot`, built by Nixpacks from `runtime.txt` (Python 3.12) |
+| Volume | `kalp-chatbot-data` → `/app/data` |
+| TLS | Let's Encrypt via Traefik |
 
-### 2b. The two pauses inside provision.sh
-- Pause A — edit `.env`: set ADMIN_PASSWORD, SESSION_SECRET, CSRF_SECRET,
-  `GROQ_API_KEY` (sk-or-v1...), `HF_API_TOKEN` (hf_...). Save.
-- Pause B — before certbot: **create the Cloudflare DNS record** (next step),
-  then press Enter.
+## Day-to-day: deploying a change
 
-## 3. Cloudflare DNS (do while script waits)
-- DNS -> Add record: Type **A**, Name **chat**, IPv4 = your VPS IP,
-  Proxy status = **DNS only (grey)**.
-- Wait 1-2 min. Verify propagation, on your machine:
-  ```
-  nslookup chat.kalp-shop.in
-  ```
-  Went OK: it returns your VPS IP.
+1. Push to `main` on `github.com/Harkeerat-ai/chatbotllm` (public — no deploy key).
+2. Dokploy UI → `kalp-chatbot` → **Deploy**.
 
-## 4. Confirm HTTPS is live
-Browser -> `https://chat.kalp-shop.in/docs`
-Went OK: FastAPI Swagger page loads (no cert warning).
+That is the whole loop. No SSH.
 
-## 5. Seed knowledge
-On the VPS:
-```
-sudo -u chatbot /home/chatbot/chatbot/venv/bin/python /home/chatbot/chatbot/seed.py
-```
-Went OK: prints ingestion, no traceback.
+## Things that are NOT steps (and used to be)
 
-## 6. Add swap (cheap insurance on 1-2 GB RAM)
-On the VPS:
-```
-fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
-echo '/swapfile none swap sw 0 0' >> /etc/fstab
-free -h          # shows Swap: 2G
+- **Do not run `seed.py` by hand.** `app/main.py` `lifespan()` calls
+  `seed_knowledge(db)` on every startup, scanning `knowledge/<brand_slug>/`.
+  Seeding is automatic and idempotent.
+- **Do not set `GROQ_API_KEY` to an OpenRouter key.** The LLM client has had
+  first-class OpenRouter support since `de3103c`. Set `OPENROUTER_API_KEY`.
+  Groq remains only as a fallback when OpenRouter is unset.
+
+## Persistent state — `/app/data`
+
+Everything that must survive a redeploy lives on the volume:
+
+| Path | Holds |
+|---|---|
+| `/app/data/app.db` | SQLite — brands, admin users, leads, conversations |
+| `/app/data/vector_db` | Chroma vector store |
+| `/app/data/hf-cache` | Embedding + reranker model weights (~176 MB) |
+
+`DATABASE_URL` uses **four** slashes (`sqlite:////app/data/app.db`). Three makes
+it relative and it writes to a non-persistent path.
+
+## `CORS_ORIGINS` controls framing, not just API access
+
+Since `b6a2ef4`, the widget routes derive CSP `frame-ancestors` from
+`CORS_ORIGINS`, because `X-Frame-Options` has no allowlist form. Removing an
+origin stops that site embedding the widget. All non-widget routes stay
+`X-Frame-Options: DENY` + `frame-ancestors 'none'`.
+
+`www.kalp-shop.in` does not need listing — it 301s to the apex before any page
+renders.
+
+## Putting the widget on the shop
+
+```html
+<script src="https://chat.kalp-shop.in/widget.js"
+        data-brand="kalp"
+        data-position="bottom-right"></script>
 ```
 
-## 7. Verify a real chat round-trip
+Before `</body>` in the theme footer. Then the manual theme deploy:
+
+1. SFTP the theme file to Hostinger
+2. Bump `KALP_THEME_VERSION` in `functions.php`
+3. LiteSpeed → Toolbox → **Purge All**
+4. Cloudflare → **Purge Everything**
+5. Verify in Incognito
+
+## Cloudflare
+
+The `chat` A record must be **grey (DNS-only)** while Let's Encrypt runs its
+HTTP-01 challenge. Once the cert is issued it can go **orange**. If a renewal
+ever fails, go grey, renew, then orange again.
+
+## Health checks
+
 ```
-curl -s -X POST https://chat.kalp-shop.in/api/kalp/chat \
+curl https://chat.kalp-shop.in/health
+curl https://chat.kalp-shop.in/api/kalp/health     # -> chunk_count
+curl -X POST https://chat.kalp-shop.in/api/kalp/chat \
   -H 'Content-Type: application/json' \
-  -d '{"message":"What flavours does KALP offer?","session_id":"golang"}' 
+  -d '{"message":"What flavours does KALP offer?","session_id":"check"}'
 ```
-Went OK: returns JSON with an answer referencing KALP flavours (not an error,
-not "I don't know"). If "brand not found" -> admin panel must create `kalp`
-first (Phase 9 / admin/brands).
 
-## 8. Wire into kalp-shop.in
-- wp-admin -> Customize -> KALP Brand Settings -> Chat Widget
-- URL: `https://chat.kalp-shop.in`   Brand slug: `kalp`
-- Save & Publish
-Went OK: the gold placeholder disappears on kalp-shop.in; launcher opens widget.
-
-## 9. Brand + go
-- `https://chat.kalp-shop.in/admin` -> log in -> kalp brand -> widget config:
-  gold `#C9A84C`, brown `#1A0A03`, cream `#FFF8EE`, welcome msg, language `en`.
-- Test on the live site.
-
----
-
-## If something fails
-
-| Symptom | Fix |
-|---------|-----|
-| certbot error during provision | Cloudflare `chat` record not DNS-only, not propagated, or wrong IP. Fix DNS, wait, re-run `bash deploy/provision.sh` (it's idempotent). |
-| `brand 'kalp' not found` | create brand `kalp` in admin panel, then re-run seed. |
-| chat says "I don't know" | knowledge not ingested -> re-run seed.py (step 5). |
-| OpenAI/AML 401 on OpenRouter | wrong/expired `sk-or-v1-...` in `.env`; edit, `systemctl restart chatbot`. |
-| widget block / mixed content | Customizer URL must be `https://chat.kalp-shop.in` exactly, no trailing slash. |
-| memory pressure | step 6 swap; only upgrade VM if still tight. |
-| logs | `journalctl -u chatbot -f` / `sudo tail -f /var/log/nginx/error.log`. |
+If chat returns an API-key error string, `OPENROUTER_API_KEY` is unset in the
+Dokploy environment.

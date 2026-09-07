@@ -1,3 +1,6 @@
+# SUPERSEDED — the server runs Dokploy (Docker Swarm + Traefik), not systemd + nginx.
+# This script targets Ubuntu 22.04 and will not work on the current 26.04 server.
+# Kept for history only. See GO_LIVE_RUNBOOK.md.
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # KALP chatbot — Hostinger VPS provisioner

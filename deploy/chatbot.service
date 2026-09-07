@@ -1,3 +1,5 @@
+# SUPERSEDED — the server runs Dokploy (Docker Swarm + Traefik), not systemd + nginx.
+# Unused. Kept for history only. See GO_LIVE_RUNBOOK.md.
 [Unit]
 Description=KALP Chatbot API
 After=network.target
