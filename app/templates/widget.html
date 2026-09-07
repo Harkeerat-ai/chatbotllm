@@ -53,6 +53,18 @@
   #lang-select { background: none; border: 1px solid {{ border_color }}; color: {{ text_dim_color }}; border-radius: 6px; padding: 1px 4px; font-size: 11px; cursor: pointer; font-family: inherit; margin-left: 8px; }
   #lang-select:hover { border-color: {{ accent_color }}; }
   #lang-select option { background: {{ bg_color }}; color: {{ text_color }}; }
+
+  /* Mobile: the outer iframe (sized in widget.js) shrinks to fit the viewport
+     below this breakpoint, so the inner panel must shrink to match instead of
+     keeping the fixed desktop {{ width }}/{{ height }}. #rag-widget stays
+     content-sized (not given its own fixed height) so the toggle button never
+     resizes — only #widget-box, the opened panel, needs to respect the
+     viewport here. Keep this breakpoint in sync with MOBILE_BREAKPOINT in
+     widget.js. */
+  @media (max-width: 480px) {
+    #rag-widget { bottom: 12px; right: 12px; }
+    #widget-box { width: calc(100vw - 24px); height: calc(100vh - 24px); }
+  }
 </style>
 </head>
 <body>

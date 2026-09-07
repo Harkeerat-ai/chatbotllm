@@ -1127,12 +1127,35 @@ def widget_js():
   var iframe = document.createElement("iframe");
   iframe.src = origin + "/widget/" + brand;
   iframe.title = "Chat widget";
-  var css = "position:fixed;border:none;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.4);z-index:9999;width:" + w + ";height:" + h + ";";
-  if (v === "bottom") css += "bottom:20px;";
-  else css += "top:20px;";
-  if (hz === "right") css += "right:20px;";
-  else css += "left:20px;";
-  iframe.style.cssText = css;
+  // No border-radius/box-shadow here: the iframe box is transparent and full-size
+  // even while collapsed to just the toggle button, so decorating *this* element
+  // paints a ghost rounded-rect shadow over the host page. The visible panel
+  // (#widget-box in widget.html) draws its own shadow only while actually open.
+  //
+  // Below MOBILE_BREAKPOINT the fixed desktop w/h (e.g. 420x600) would overflow
+  // a narrow viewport and clip off-screen, so the iframe box itself shrinks to
+  // fit the viewport instead. This mirrors the @media (max-width: 480px) rule
+  // for #widget-box/#rag-widget in widget.html — keep the two in sync.
+  var MOBILE_BREAKPOINT = 480;
+
+  function applyLayout() {
+    var mobile = window.innerWidth <= MOBILE_BREAKPOINT;
+    var curW = mobile ? "calc(100vw - 32px)" : w;
+    var curH = mobile ? "calc(100vh - 100px)" : h;
+    var margin = mobile ? "16px" : "20px";
+    var css = "position:fixed;border:none;background:transparent;z-index:9999;width:" + curW + ";height:" + curH + ";";
+    if (v === "bottom") css += "bottom:" + margin + ";";
+    else css += "top:" + margin + ";";
+    if (hz === "right") css += "right:" + margin + ";";
+    else css += "left:" + margin + ";";
+    iframe.style.cssText = css;
+  }
+
+  applyLayout();
+  // Phones can rotate, and this script instance/iframe persists across that,
+  // so recompute the same layout on resize/orientation change.
+  window.addEventListener("resize", applyLayout);
+  window.addEventListener("orientationchange", applyLayout);
 
   // Guard against the script running in <head> before <body> exists.
   function mount() { document.body.appendChild(iframe); }
