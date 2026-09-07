@@ -13,6 +13,46 @@ _client: chromadb.PersistentClient | None = None
 logger = logging.getLogger(__name__)
 
 
+_LOCAL_ST_MODEL = None
+
+
+def _get_local_st_model(model_name: str):
+    """Load and cache the sentence-transformers model in-process."""
+    global _LOCAL_ST_MODEL
+    if _LOCAL_ST_MODEL is None:
+        from sentence_transformers import SentenceTransformer
+        logger.info("Loading local sentence-transformers model: %s", model_name)
+        _LOCAL_ST_MODEL = SentenceTransformer(model_name)
+    return _LOCAL_ST_MODEL
+
+
+class LocalSentenceTransformerEmbeddingFunction(EmbeddingFunction[Documents]):
+    """In-process sentence-transformers embeddings — no API key, no network."""
+
+    def __init__(self, model_name: str):
+        self.model_name = model_name
+
+    def __call__(self, input: Documents) -> Embeddings:
+        texts = [input] if isinstance(input, str) else list(input)
+        if not texts:
+            return []
+        model = _get_local_st_model(self.model_name)
+        arr = model.encode(
+            texts,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
+        return [np.asarray(v, dtype=np.float32) for v in arr]
+
+    @staticmethod
+    def name() -> str:
+        return "local-st"
+
+    def default_space(self) -> str:
+        return "cosine"
+
+
 class HuggingFaceEmbeddingFunction(EmbeddingFunction[Documents]):
     """Embedding via HuggingFace Inference API (free tier)."""
 
@@ -102,6 +142,12 @@ def get_client() -> chromadb.PersistentClient:
 def _build_embedding_function():
     from app.embedding_service import CachedEmbeddingWrapper
 
+    if settings.use_local_embeddings:
+        return CachedEmbeddingWrapper(
+            LocalSentenceTransformerEmbeddingFunction(
+                model_name=settings.local_embed_model,
+            )
+        )
     if settings.hf_api_token:
         return CachedEmbeddingWrapper(
             HuggingFaceEmbeddingFunction(

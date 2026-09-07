@@ -21,7 +21,7 @@ def test_defaults(monkeypatch):
     assert s.chroma_path == "./vector_db"
     assert s.ollama_base_url == "http://localhost:11434"
     assert s.ollama_embed_model == "nomic-embed-text"
-    assert s.use_ollama_embeddings is True
+    assert s.use_ollama_embeddings is False
     assert s.admin_username == "admin"
     assert s.admin_password == "change-me-now"
     assert s.session_secret == "replace-with-a-long-random-string"

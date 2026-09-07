@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_embed_model: str = "nomic-embed-text"
-    use_ollama_embeddings: bool = True
+    use_ollama_embeddings: bool = False
 
     admin_username: str = "admin"
     admin_password: str = "change-me-now"
@@ -24,12 +24,27 @@ class Settings(BaseSettings):
     csrf_secret: str = "replace-with-a-different-random-string"
     allow_unverified_tracking: bool = False
 
-    # Cloud LLM (Groq)
+    # Cloud LLM (OpenRouter — primary)
+    openrouter_api_key: str = ""
+    openrouter_model: str = "meta-llama/llama-3.3-70b-instruct"
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_site_url: str = "https://kalp-shop.in"
+    openrouter_app_name: str = "KALP Chatbot"
+    openrouter_providers: list[str] = Field(
+        ["fireworks", "together"],
+        description="Preferred OpenRouter providers, in order. Chosen for low TTFT on Llama 3.3 70B.",
+    )
+
+    # Cloud LLM (Groq — legacy fallback if openrouter_api_key is unset)
     groq_api_key: str = ""
     groq_model: str = "llama-3.1-8b-instant"
     groq_base_url: str = "https://api.groq.com/openai/v1"
 
-    # Cloud embeddings (HuggingFace)
+    # Local embeddings (sentence-transformers, no API key)
+    use_local_embeddings: bool = True
+    local_embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+
+    # Cloud embeddings (HuggingFace — only used if use_local_embeddings=false and token set)
     hf_api_token: str = ""
     hf_embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 

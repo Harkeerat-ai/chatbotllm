@@ -1,5 +1,7 @@
 """
-LLM client — chat generation via Groq API (OpenAI-compatible).
+LLM client — chat generation via OpenRouter (OpenAI-compatible).
+
+Falls back to Groq if OPENROUTER_API_KEY is unset but GROQ_API_KEY is present.
 """
 
 from __future__ import annotations
@@ -21,12 +23,26 @@ settings = get_settings()
 
 class LLMClient:
     def __init__(self):
-        self.base_url = settings.groq_base_url
-        self.chat_model = settings.groq_model
-        self._groq_api_key = settings.groq_api_key
+        if settings.openrouter_api_key:
+            self.provider = "openrouter"
+            self.base_url = settings.openrouter_base_url
+            self.chat_model = settings.openrouter_model
+            self._api_key = settings.openrouter_api_key
+        else:
+            self.provider = "groq"
+            self.base_url = settings.groq_base_url
+            self.chat_model = settings.groq_model
+            self._api_key = settings.groq_api_key
 
     def _is_available(self) -> bool:
-        return bool(self._groq_api_key)
+        return bool(self._api_key)
+
+    def _build_headers(self) -> dict[str, str]:
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+        if self.provider == "openrouter":
+            headers["HTTP-Referer"] = settings.openrouter_site_url
+            headers["X-Title"] = settings.openrouter_app_name
+        return headers
 
     async def stream_chat(
         self,
@@ -36,7 +52,7 @@ class LLMClient:
         append_rag_instruction: bool = True,
     ) -> AsyncGenerator[str, None]:
         """Async generator yielding string chunks from Groq as they arrive."""
-        if not self._groq_api_key:
+        if not self._api_key:
             yield get_text("llm.error.api_key", DEFAULT_LANGUAGE)
             return
 
@@ -50,16 +66,21 @@ class LLMClient:
         else:
             full_system = f"{system_prompt}\n\nData:\n{context}"
 
-        payload = {
+        payload: dict = {
             "model": self.chat_model,
             "messages": [{"role": "system", "content": full_system}] + messages,
             "stream": True,
             "max_tokens": 180,
             "temperature": 0.3,
         }
+        if self.provider == "openrouter" and settings.openrouter_providers:
+            payload["provider"] = {
+                "order": settings.openrouter_providers,
+                "allow_fallbacks": True,
+            }
 
         url = f"{self.base_url}/chat/completions"
-        headers = {"Authorization": f"Bearer {self._groq_api_key}"}
+        headers = self._build_headers()
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -121,26 +142,26 @@ class LLMClient:
         return "".join(answer_parts), latency_ms
 
     async def warmup(self) -> None:
-        """Verify the Groq API key works and log available models."""
-        if not self._groq_api_key:
-            logger.warning("GROQ_API_KEY not set — skipping warmup")
+        """Verify the LLM API key works and log available models."""
+        if not self._api_key:
+            logger.warning("%s API key not set — skipping warmup", self.provider.upper())
             return
         try:
             r = requests.get(
                 f"{self.base_url}/models",
-                headers={"Authorization": f"Bearer {self._groq_api_key}"},
+                headers=self._build_headers(),
                 timeout=5,
             )
             if r.status_code == 200:
                 models = [m["id"] for m in r.json().get("data", [])]
                 logger.info(
-                    "Groq API ready — %d models available, using %s",
-                    len(models), self.chat_model,
+                    "%s API ready — %d models available, using %s",
+                    self.provider.upper(), len(models), self.chat_model,
                 )
             else:
-                logger.warning("Groq API check returned %s", r.status_code)
+                logger.warning("%s API check returned %s", self.provider.upper(), r.status_code)
         except Exception as e:
-            logger.warning("Groq API check failed: %s", e)
+            logger.warning("%s API check failed: %s", self.provider.upper(), e)
 
 
 llm = LLMClient()
