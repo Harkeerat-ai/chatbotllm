@@ -1142,7 +1142,11 @@ def widget_js():
     var mobile = window.innerWidth <= MOBILE_BREAKPOINT;
     var curW = mobile ? "calc(100vw - 32px)" : w;
     var curH = mobile ? "calc(100vh - 100px)" : h;
-    var margin = mobile ? "16px" : "20px";
+    // Desktop margin is deliberately small: Astra's own blue "scroll to top"
+    // icon sits at bottom:30px/right:30px (~31.5x31.5px). The launcher needs
+    // to fully cover it rather than leave it peeking out from a corner, so
+    // it sits closer to the true corner than that icon does.
+    var margin = mobile ? "16px" : "2px";
     var css = "position:fixed;border:none;background:transparent;z-index:9999;width:" + curW + ";height:" + curH + ";";
     if (v === "bottom") css += "bottom:" + margin + ";";
     else css += "top:" + margin + ";";
