@@ -1195,7 +1195,19 @@ def widget_js():
   else document.addEventListener("DOMContentLoaded", mount);
 })();
 """
-    return Response(content=js, media_type="application/javascript")
+    # Explicit, short cache lifetime: without this, Cloudflare falls back to
+    # its own default (observed: 4 hours) for a .js response with no
+    # origin cache header. That default caused real confusion during this
+    # very fix's rollout — different edge POPs kept serving the pre-fix
+    # script for up to 4 hours after a redeploy, with no way to force-clear
+    # them all short of a manual "Purge Everything" in the Cloudflare
+    # dashboard. A short max-age means any future change reaches every
+    # visitor within minutes of deploying, no manual purge required.
+    return Response(
+        content=js,
+        media_type="application/javascript",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
