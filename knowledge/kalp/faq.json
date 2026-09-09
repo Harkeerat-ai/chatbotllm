@@ -9,7 +9,7 @@
   },
   {
     "question": "What flavours does KALP offer? What are the KALP bar variants?",
-    "answer": "KALP currently offers four signature flavours: Shahi Gulab, Nawabi Paan, Royal Rajbhog, and Thandi Thandai. Each flavour is inspired by iconic Indian tastes and celebrations."
+    "answer": "KALP currently offers four signature flavours: Shahi Gulab, Nawabi Paan, Sohi Rajbhog, and Thandi Thandai. Each flavour is inspired by iconic Indian tastes and celebrations."
   },
   {
     "question": "What is Shahi Gulab?",
@@ -20,8 +20,8 @@
     "answer": "Nawabi Paan is one of KALP's four signature cocoa bar flavours, inspired by the iconic Indian paan experience, bringing a rich and celebratory taste to premium chocolate."
   },
   {
-    "question": "What is Royal Rajbhog?",
-    "answer": "Royal Rajbhog is one of KALP's four signature cocoa bar flavours, inspired by the beloved Indian rajbhog sweet — rich, indulgent, and fit for royalty."
+    "question": "What is Sohi Rajbhog?",
+    "answer": "Sohi Rajbhog is one of KALP's four signature cocoa bar flavours, inspired by the beloved Indian rajbhog sweet — rich, indulgent, and fit for royalty."
   },
   {
     "question": "What is Thandi Thandai?",
@@ -118,5 +118,13 @@
   {
     "question": "What is KALP's approach to ethical sourcing and sustainability?",
     "answer": "KALP believes that great chocolate starts with responsible choices. We are committed to sourcing high-quality cocoa and ingredients with a focus on ethical practices and transparency across our supply chain. As a growing brand, sustainability is central to how we think about packaging, sourcing, and our long-term impact — and we continue to raise the bar with every decision we make."
+  },
+  {
+    "question": "What is KALP's website? What is the website link or URL? Where is your online store?",
+    "answer": "KALP's official website is https://kalp-shop.in. You can browse and buy all four flavours — Shahi Gulab, Nawabi Paan, Sohi Rajbhog, and Thandi Thandai — directly at https://kalp-shop.in/shop."
+  },
+  {
+    "question": "How do I buy Shahi Gulab? How can I buy Nawabi Paan? How do I purchase Sohi Rajbhog? How can I buy Thandi Thandai?",
+    "answer": "Visit https://kalp-shop.in/shop, pick the flavour you want, and click 'Add to Cart'. Then go to your cart and click 'Checkout' to enter your delivery address and pay by UPI, card, net banking, or wallet."
   }
 ]
