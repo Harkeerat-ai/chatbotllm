@@ -1138,15 +1138,35 @@ def widget_js():
   // for #widget-box/#rag-widget in widget.html — keep the two in sync.
   var MOBILE_BREAKPOINT = 480;
 
+  // CRITICAL: the iframe itself must only be as big as whatever is actually
+  // visible inside it. It used to stay panel-sized (e.g. 420x600) even while
+  // closed to just the toggle button — since the rest of that box is
+  // transparent but NOT click-through, it silently swallowed every tap on
+  // the host page underneath it (nav links, WhatsApp button, etc), leaving
+  // only the visible button itself clickable. widget.html posts its
+  // open/closed state (see toggleWidget there); we resize the iframe here
+  // in response, closed being just the button's own footprint.
+  var CLOSED_SIZE = "72px";
+  var isOpen = false;
+
   function applyLayout() {
     var mobile = window.innerWidth <= MOBILE_BREAKPOINT;
-    var curW = mobile ? "calc(100vw - 32px)" : w;
-    var curH = mobile ? "calc(100vh - 100px)" : h;
-    // Desktop margin is deliberately small: Astra's own blue "scroll to top"
-    // icon sits at bottom:30px/right:30px (~31.5x31.5px). The launcher needs
-    // to fully cover it rather than leave it peeking out from a corner, so
-    // it sits closer to the true corner than that icon does.
-    var margin = mobile ? "16px" : "2px";
+    var curW, curH, margin;
+    if (isOpen) {
+      curW = mobile ? "calc(100vw - 32px)" : w;
+      curH = mobile ? "calc(100vh - 100px)" : h;
+      // More generous than the closed margin below — no corner-icon to cover
+      // once the full panel is open, so give it normal breathing room.
+      margin = mobile ? "16px" : "20px";
+    } else {
+      curW = CLOSED_SIZE;
+      curH = CLOSED_SIZE;
+      // Desktop margin is deliberately small while closed: Astra's own blue
+      // "scroll to top" icon sits at bottom:30px/right:30px (~31.5x31.5px),
+      // and the launcher needs to fully cover it rather than leave it
+      // peeking out from a corner.
+      margin = mobile ? "16px" : "2px";
+    }
     var css = "position:fixed;border:none;background:transparent;z-index:9999;width:" + curW + ";height:" + curH + ";";
     if (v === "bottom") css += "bottom:" + margin + ";";
     else css += "top:" + margin + ";";
@@ -1160,6 +1180,14 @@ def widget_js():
   // so recompute the same layout on resize/orientation change.
   window.addEventListener("resize", applyLayout);
   window.addEventListener("orientationchange", applyLayout);
+
+  // Only trust this from our own iframe's origin, not just any postMessage
+  // that happens to land on the page.
+  window.addEventListener("message", function (e) {
+    if (e.origin !== origin || !e.data || e.data.source !== "kalp-widget") return;
+    isOpen = !!e.data.open;
+    applyLayout();
+  });
 
   // Guard against the script running in <head> before <body> exists.
   function mount() { document.body.appendChild(iframe); }

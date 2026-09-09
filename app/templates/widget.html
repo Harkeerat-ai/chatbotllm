@@ -274,9 +274,16 @@ var W_SEND = "{{ send }}";
       box.classList.remove("open");
       btn.style.display = "flex";
     }
+    // The parent page's iframe is sized to match: full panel size when open,
+    // just the toggle button's footprint when closed. Without this, the
+    // (transparent, invisible) iframe stays panel-sized at all times and
+    // silently blocks clicks on whatever sits underneath it on the host
+    // page — nav, WhatsApp button, etc. See widget.js's message listener.
+    try { parent.postMessage({ source: "kalp-widget", open: show }, "*"); } catch (e) {}
   }
 
   document.getElementById("toggle-btn").addEventListener("click", function() { toggleWidget(true); });
+  toggleWidget(false); // tell the parent our (closed) starting size immediately
   document.getElementById("minimize-btn").addEventListener("click", function() { toggleWidget(false); });
   document.getElementById("send").addEventListener("click", send);
   document.getElementById("input").addEventListener("keydown", function(e) { if (e.key === "Enter") send(); });
