@@ -67,6 +67,13 @@ NAVIGATION_KEYWORDS = sorted(
     key=lambda k: (-len(k), k),
 )
 
+# A message containing one of these is a question in its own right, not an
+# answer to the clarifying question we just asked.
+QUESTION_WORDS = {
+    "what", "how", "when", "where", "why", "which", "who",
+    "is", "are", "do", "does", "can", "could", "should",
+}
+
 # Deliberately narrower, and used only to decide whether an order-tracking
 # conversation should step aside for a link request. Purchase and "where can i"
 # phrasings collide with how people ask about a shipment ("where can i track my
@@ -283,7 +290,16 @@ class RAGService:
         just_clarified = False
         if ctx.state == "awaiting_clarification":
             original = state_machine.get_slot(ctx, "clarification_original_query", "")
-            if original:
+            # Only fold the earlier question in when this message reads as an
+            # answer to it ("shahi gulab", "yes") rather than a fresh question.
+            # Users routinely ignore the clarification and ask something else
+            # instead; combining then retrieves on two unrelated questions at
+            # once and answers neither — asking "what is the price" right after
+            # an unrelated clarification produced a non-answer.
+            asks_something_new = bool(
+                set(user_message.lower().replace("?", " ").split()) & QUESTION_WORDS
+            )
+            if original and not asks_something_new:
                 user_message = f"{original} {user_message}"
             # Remembered across the reset below, so we never ask a second
             # clarifying question in a row. The question we ask reads as a
@@ -1289,7 +1305,16 @@ class RAGService:
         just_clarified = False
         if ctx.state == "awaiting_clarification":
             original = state_machine.get_slot(ctx, "clarification_original_query", "")
-            if original:
+            # Only fold the earlier question in when this message reads as an
+            # answer to it ("shahi gulab", "yes") rather than a fresh question.
+            # Users routinely ignore the clarification and ask something else
+            # instead; combining then retrieves on two unrelated questions at
+            # once and answers neither — asking "what is the price" right after
+            # an unrelated clarification produced a non-answer.
+            asks_something_new = bool(
+                set(user_message.lower().replace("?", " ").split()) & QUESTION_WORDS
+            )
+            if original and not asks_something_new:
                 user_message = f"{original} {user_message}"
             # Remembered across the reset below, so we never ask a second
             # clarifying question in a row. The question we ask reads as a
