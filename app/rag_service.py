@@ -272,10 +272,17 @@ class RAGService:
 
         # 5a. Clarification follow-up: if we asked a clarification question on the previous turn,
         # combine the user's answer with the original query to improve retrieval.
+        just_clarified = False
         if ctx.state == "awaiting_clarification":
             original = state_machine.get_slot(ctx, "clarification_original_query", "")
             if original:
                 user_message = f"{original} {user_message}"
+            # Remembered across the reset below, so we never ask a second
+            # clarifying question in a row. The question we ask reads as a
+            # yes/no ("Are you looking for X or Y?"), so a user answering
+            # "yes" adds nothing to the query, retrieval scores just as badly
+            # as before, and without this the bot clarifies forever.
+            just_clarified = True
             state_machine.reset(db, ctx)
             ctx = state_machine.get_context(db, conv.id)
 
@@ -321,7 +328,7 @@ class RAGService:
             needs_clarification = (
                 len(docs) == 0 or (reranker_ran and top_score < settings.clarification_threshold)
             )
-            if needs_clarification and not has_nav_intent:
+            if needs_clarification and not has_nav_intent and not just_clarified:
                 state_machine.set_slot(ctx, "clarification_original_query", user_message)
                 state_machine.apply_transition(db, ctx, "clarification_needed")
                 answer = await self._generate_clarification_question(docs, metas, brand.name, _lang)
@@ -1265,10 +1272,17 @@ class RAGService:
             return
 
         # Clarification follow-up for stream
+        just_clarified = False
         if ctx.state == "awaiting_clarification":
             original = state_machine.get_slot(ctx, "clarification_original_query", "")
             if original:
                 user_message = f"{original} {user_message}"
+            # Remembered across the reset below, so we never ask a second
+            # clarifying question in a row. The question we ask reads as a
+            # yes/no ("Are you looking for X or Y?"), so a user answering
+            # "yes" adds nothing to the query, retrieval scores just as badly
+            # as before, and without this the bot clarifies forever.
+            just_clarified = True
             state_machine.reset(db, ctx)
             ctx = state_machine.get_context(db, conv.id)
 
@@ -1310,7 +1324,7 @@ class RAGService:
             needs_clarification = (
                 len(docs) == 0 or (reranker_ran and top_score < settings.clarification_threshold)
             )
-            if needs_clarification and not has_nav_intent:
+            if needs_clarification and not has_nav_intent and not just_clarified:
                 state_machine.set_slot(ctx, "clarification_original_query", user_message)
                 state_machine.apply_transition(db, ctx, "clarification_needed")
                 answer = await self._generate_clarification_question(docs, metas, brand.name, _lang)
