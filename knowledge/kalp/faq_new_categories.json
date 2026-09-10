@@ -105,7 +105,7 @@
   },
   {
     "question": "What is the minimum order value?",
-    "answer": "There is no minimum order value — you can order a single bar (₹900) or as many as you like. Free shipping is available on orders above ₹999."
+    "answer": "There is no minimum order value — you can order a single bar (₹900) or as many as you like. Shipping charges are calculated at checkout."
   },
   {
     "question": "Can I place an order through WhatsApp?",
@@ -161,15 +161,15 @@
   },
   {
     "question": "Do you ship across India?",
-    "answer": "Yes, we deliver across India. Metro cities (Mumbai, Delhi, Bangalore, Chennai, Kolkata, Hyderabad): 3-4 business days. All other serviceable pincodes: 5-7 business days. We do not currently ship internationally."
+    "answer": "Yes, we deliver across India. Metro cities (Mumbai, Delhi, Bangalore, Chennai, Kolkata, Hyderabad): 3-4 business days. All other serviceable pincodes: 5-7 business days. We also ship internationally, typically in 10-14 business days."
   },
   {
     "question": "What are the shipping charges?",
-    "answer": "Shipping charges are calculated and displayed at checkout. Free shipping on orders above ₹999. Flat ₹99 below ₹999. Express delivery available at checkout for select pincodes."
+    "answer": "Shipping charges are calculated and displayed at checkout, based on your order and delivery address. Express delivery is available at checkout for select pincodes."
   },
   {
     "question": "Is there free shipping?",
-    "answer": "Yes, we offer free shipping on all orders above ₹999. Orders below this threshold incur a flat shipping fee of ₹99."
+    "answer": "Shipping is charged based on your order and delivery address, and the exact amount is shown at checkout before you pay."
   },
   {
     "question": "Which courier partners do you use?",
@@ -249,7 +249,7 @@
   },
   {
     "question": "Do you accept international cards?",
-    "answer": "We currently only ship within India, so checkout is configured for Indian payment methods. International cards may not be supported."
+    "answer": "We ship worldwide and checkout is handled by Razorpay, which supports major international cards alongside Indian payment methods. If a card is declined, please contact us at info@kalp-shop.in and we will help."
   },
   {
     "question": "Can I pay using Wallets like Paytm?",
@@ -401,6 +401,6 @@
   },
   {
     "question": "What does KALP mean?",
-    "answer": "KALP means 'imagination' in Sanskrit — the creative vision that transforms an idea into reality. Our name reflects our philosophy: reimagining Indian cultural flavours through the medium of premium cocoa. Every bar is a product of imagination meeting tradition."
+    "answer": "KALP means the cycle of ages. Our name reflects our philosophy: flavours tied to real memories and traditions move in and out of everyday life, and deserve to be brought back through the medium of premium cocoa. Every bar is tradition given a new expression."
   }
 ]

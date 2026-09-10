@@ -55,7 +55,29 @@ logger = logging.getLogger(__name__)
 
 _RERANKER: CrossEncoderONNX | None = None
 
-NAVIGATION_KEYWORDS = sorted({"take me to", "go to", "show me", "open", "navigate", "link", "take me"}, key=len, reverse=True)
+# Phrases that mean "send me somewhere on the site". Sorted longest-first so
+# that when we strip the phrase to get the search term, "take me to" wins over
+# "take me". Purchase verbs are included because "how can i buy thandi thandai"
+# wants a product link every bit as much as "show me thandi thandai" does.
+NAVIGATION_KEYWORDS = sorted(
+    {
+        "take me to", "go to", "show me", "open", "navigate", "link", "take me",
+        "where can i", "send me", "shop for", "buy", "purchase", "website",
+    },
+    key=len,
+    reverse=True,
+)
+
+# Deliberately narrower, and used only to decide whether an order-tracking
+# conversation should step aside for a link request. Purchase and "where can i"
+# phrasings collide with how people ask about a shipment ("where can i track my
+# order", "send me the tracking link"), and tracking has to win those — so this
+# stays as the original set rather than following NAVIGATION_KEYWORDS.
+TRACKING_BYPASS_KEYWORDS = sorted(
+    {"take me to", "go to", "show me", "open", "navigate", "link", "take me"},
+    key=len,
+    reverse=True,
+)
 
 
 def _get_reranker() -> CrossEncoderONNX:
@@ -174,7 +196,7 @@ class RAGService:
             lookup_value, lookup_type, confidence = self._safe_extract_lookup(user_message)
 
             # Auto-trigger on explicit lookup token (e.g. TRK-..., KALP-1001)
-            if lookup_value and confidence >= 60 and not any(kw in user_message.lower() for kw in NAVIGATION_KEYWORDS):
+            if lookup_value and confidence >= 60 and not any(kw in user_message.lower() for kw in TRACKING_BYPASS_KEYWORDS):
                 logger.info(
                     "Auto-triggering tracking lookup for extracted value=%s (conf=%s)",
                     lookup_value, confidence,
@@ -192,7 +214,7 @@ class RAGService:
             if tracking_service.should_handle_chat(user_message, history):
                 # Bypass tracking if user is asking for a page link (no tracking number)
                 msg_lower = user_message.lower()
-                if any(kw in msg_lower for kw in NAVIGATION_KEYWORDS) and not (lookup_value and confidence >= 60):
+                if any(kw in msg_lower for kw in TRACKING_BYPASS_KEYWORDS) and not (lookup_value and confidence >= 60):
                     logger.info("Navigation intent detected — bypassing tracking flow")
                 else:
                     result = await self._handle_new_tracking_intent(
@@ -289,8 +311,18 @@ class RAGService:
             else:
                 top_score = 0.0
 
+            # "Take me to the paan bar" is an explicit request for a link, so it
+            # must not be answered with a clarifying question just because the
+            # retrieved context happened to score poorly — the product-page
+            # lookup further down is what actually serves this intent.
+            msg_lower = user_message.lower()
+            has_nav_intent = any(kw in msg_lower for kw in NAVIGATION_KEYWORDS)
+
             reranker_ran = docs and len(docs) > 1
-            if len(docs) == 0 or (reranker_ran and top_score < settings.clarification_threshold):
+            needs_clarification = (
+                len(docs) == 0 or (reranker_ran and top_score < settings.clarification_threshold)
+            )
+            if needs_clarification and not has_nav_intent:
                 state_machine.set_slot(ctx, "clarification_original_query", user_message)
                 state_machine.apply_transition(db, ctx, "clarification_needed")
                 answer = await self._generate_clarification_question(docs, metas, brand.name, _lang)
@@ -315,8 +347,7 @@ class RAGService:
             ]
 
             # Product page lookup — only on explicit navigation intent
-            msg_lower = user_message.lower()
-            if any(kw in msg_lower for kw in NAVIGATION_KEYWORDS):
+            if has_nav_intent:
                 try:
                     search_term = msg_lower
                     for phrase in NAVIGATION_KEYWORDS:
@@ -726,7 +757,7 @@ class RAGService:
         state = ctx.state
 
         if state == "awaiting_lookup_value":
-            if any(kw in user_message.lower() for kw in NAVIGATION_KEYWORDS):
+            if any(kw in user_message.lower() for kw in TRACKING_BYPASS_KEYWORDS):
                 state_machine.reset(db, ctx)
                 return None
             lookup_value, lookup_type, confidence = tracking_service.extract_lookup_value_with_type(user_message)
@@ -779,7 +810,7 @@ class RAGService:
             }
 
         elif state == "awaiting_verification":
-            if any(kw in user_message.lower() for kw in NAVIGATION_KEYWORDS):
+            if any(kw in user_message.lower() for kw in TRACKING_BYPASS_KEYWORDS):
                 state_machine.reset(db, ctx)
                 return None
             verification = user_message.strip()
@@ -1170,7 +1201,7 @@ class RAGService:
 
             lookup_value, lookup_type, confidence = self._safe_extract_lookup(user_message)
 
-            if lookup_value and confidence >= 60 and not any(kw in user_message.lower() for kw in NAVIGATION_KEYWORDS):
+            if lookup_value and confidence >= 60 and not any(kw in user_message.lower() for kw in TRACKING_BYPASS_KEYWORDS):
                 result = await self._handle_new_tracking_intent(
                     db, brand, session_id, conv, ctx, user_message, history,
                     allow_unverified_tracking=allow_unverified_tracking,
@@ -1184,7 +1215,7 @@ class RAGService:
 
             if tracking_service.should_handle_chat(user_message, history):
                 msg_lower = user_message.lower()
-                if any(kw in msg_lower for kw in NAVIGATION_KEYWORDS) and not (lookup_value and confidence >= 60):
+                if any(kw in msg_lower for kw in TRACKING_BYPASS_KEYWORDS) and not (lookup_value and confidence >= 60):
                     pass
                 else:
                     result = await self._handle_new_tracking_intent(
@@ -1259,8 +1290,17 @@ class RAGService:
             else:
                 top_score = 0.0
 
+            # See the matching comment in ask(): an explicit navigation request
+            # must reach the product-page lookup below rather than being turned
+            # into a clarifying question by a weak retrieval score.
+            msg_lower = user_message.lower()
+            has_nav_intent = any(kw in msg_lower for kw in NAVIGATION_KEYWORDS)
+
             reranker_ran = docs and len(docs) > 1
-            if len(docs) == 0 or (reranker_ran and top_score < settings.clarification_threshold):
+            needs_clarification = (
+                len(docs) == 0 or (reranker_ran and top_score < settings.clarification_threshold)
+            )
+            if needs_clarification and not has_nav_intent:
                 state_machine.set_slot(ctx, "clarification_original_query", user_message)
                 state_machine.apply_transition(db, ctx, "clarification_needed")
                 answer = await self._generate_clarification_question(docs, metas, brand.name, _lang)
@@ -1282,8 +1322,7 @@ class RAGService:
             ]
 
             # Product page lookup — only on explicit navigation intent
-            msg_lower = user_message.lower()
-            if any(kw in msg_lower for kw in NAVIGATION_KEYWORDS):
+            if has_nav_intent:
                 try:
                     search_term = msg_lower
                     for phrase in NAVIGATION_KEYWORDS:

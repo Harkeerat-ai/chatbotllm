@@ -1,0 +1,58 @@
+[
+  {
+    "question": "How do I place an order? How do I buy a KALP bar?",
+    "answer": "Go to https://kalp-shop.in/shop, choose your flavour, and click Add to Cart. Then open your cart and click Checkout, enter your delivery address, and pay by UPI, card, net banking, or wallet. You can check out as a guest without creating an account."
+  },
+  {
+    "question": "How long does shipping take? When will my order arrive?",
+    "answer": "Orders are processed and dispatched within 3 to 5 business days. After dispatch, delivery takes about 3 to 4 business days to metro cities such as Mumbai, Delhi, Bangalore, Chennai, Kolkata, and Hyderabad, and about 5 to 7 business days elsewhere in India."
+  },
+  {
+    "question": "How much does shipping cost? What are the delivery charges?",
+    "answer": "Shipping charges are calculated at checkout based on your order and delivery address, so you will see the exact amount before you pay."
+  },
+  {
+    "question": "Do you ship internationally? Can I order from outside India?",
+    "answer": "Yes, KALP ships worldwide. International orders typically take 10 to 14 business days to arrive. Any customs duties or import taxes are payable by the recipient."
+  },
+  {
+    "question": "How can I track my order? When does tracking become active?",
+    "answer": "Once your order is dispatched you will receive a tracking link by email or WhatsApp. Tracking usually becomes active within 24 hours of dispatch, and you can follow the delivery in real time from there."
+  },
+  {
+    "question": "Will I get an order confirmation?",
+    "answer": "Yes. You will receive an order confirmation as soon as your payment goes through, and a separate shipment confirmation once your order has been dispatched."
+  },
+  {
+    "question": "How do you keep chocolate from melting in transit? What is the summer packaging?",
+    "answer": "From April to September, orders ship in insulated packaging with food-grade ice packs to protect the bars from heat during transit. Bars are also packed to guard against movement and moisture year round."
+  },
+  {
+    "question": "My order arrived damaged or melted. What do I do?",
+    "answer": "Please report it within 24 hours of delivery, with photographs of the parcel and the bars, by emailing info@kalp-shop.in or messaging us on WhatsApp at +91 96192 30583. For damaged, defective, or incorrect orders we arrange a replacement."
+  },
+  {
+    "question": "What is your return policy? Can I return a product?",
+    "answer": "Returns are accepted within 30 days of purchase. Items must be unused, unopened, in their original packaging, and accompanied by proof of purchase. Because chocolate is a perishable food product, opened bars cannot be returned, but damaged, defective, or incorrect orders are replaced."
+  },
+  {
+    "question": "Can I cancel or change my order after placing it?",
+    "answer": "Orders can be changed or cancelled any time before they are dispatched — contact us quickly at info@kalp-shop.in or on WhatsApp at +91 96192 30583. Once an order has shipped it can no longer be modified."
+  },
+  {
+    "question": "Do you sell gift boxes? Can I get all four flavours together as a gift?",
+    "answer": "Gift boxes containing all four flavours can be arranged on request — they are not listed on the website. Contact us at info@kalp-shop.in or on WhatsApp at +91 96192 30583 and we will put one together for you, including a personalised message card."
+  },
+  {
+    "question": "Do you take corporate or bulk orders? Can I get custom branded packaging?",
+    "answer": "Yes. We handle corporate gifting, weddings, festive campaigns, and bulk orders, with customisation available from around 10 boxes upwards — including logo placement and bespoke messaging. Write to info@kalp-shop.in with your requirement and timeline."
+  },
+  {
+    "question": "Can I send an order as a gift to someone else?",
+    "answer": "Yes. Enter the recipient's address at checkout and we will ship directly to them, with prices excluded from the parcel. If you would like a personalised message card included, let us know at info@kalp-shop.in after ordering."
+  },
+  {
+    "question": "What payment methods do you accept? Is payment secure?",
+    "answer": "Payments are handled by Razorpay and you can pay by UPI, credit or debit card, net banking, or popular wallets. Card details are encrypted to PCI-DSS standards and are never stored on our servers."
+  }
+]

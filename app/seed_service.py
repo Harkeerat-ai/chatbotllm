@@ -13,7 +13,6 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from app import models
 from app.brand_service import brand_service
 from app.ingestion_service import ingestion_service
 
@@ -33,12 +32,6 @@ def seed_knowledge(db: Session) -> None:
 
         slug = brand_dir.name
         brand = brand_service.get_or_create(db, slug)
-
-        existing = (
-            db.query(models.KnowledgeSource)
-            .filter_by(brand_id=brand.id)
-            .first()
-        )
 
         for fpath in sorted(brand_dir.iterdir()):
             suffix = fpath.suffix.lower()
@@ -63,10 +56,13 @@ def seed_knowledge(db: Session) -> None:
                     logger.info("  [legal] %s → %d chunks", fpath.name, src.chunk_count)
                     continue
 
-                # Skip non-page files if brand already seeded
-                if existing:
-                    continue
-
+                # Everything below re-seeds on every boot, same as pages/legal
+                # above. _get_or_version_source() deletes the previous version's
+                # chunks from Chroma and SQLite before the new upsert, so this
+                # replaces rather than duplicates. This used to be guarded by
+                # "skip if the brand already has any KnowledgeSource" — which,
+                # because pages.json and legal.json always create one on first
+                # boot, meant every FAQ edit after that was silently ignored.
                 if suffix == ".txt":
                     content = fpath.read_text(encoding="utf-8", errors="replace")
                     src = ingestion_service.ingest_text(db, brand, name, content)
