@@ -64,8 +64,7 @@ NAVIGATION_KEYWORDS = sorted(
         "take me to", "go to", "show me", "open", "navigate", "link", "take me",
         "where can i", "send me", "shop for", "buy", "purchase", "website",
     },
-    key=len,
-    reverse=True,
+    key=lambda k: (-len(k), k),
 )
 
 # Deliberately narrower, and used only to decide whether an order-tracking
@@ -353,6 +352,17 @@ class RAGService:
                     for phrase in NAVIGATION_KEYWORDS:
                         if phrase in msg_lower:
                             search_term = msg_lower.split(phrase, 1)[1].strip().rstrip(".!?' ")
+                            if not search_term:
+                                # The phrase was the last thing said — "send me
+                                # the website", "how can i buy". An empty term
+                                # makes the LIKE below match every row and hand
+                                # back whichever product happens to be first,
+                                # so search for the phrase itself instead:
+                                # "website" finds the home page, and a bare
+                                # "buy" finds nothing and falls through to the
+                                # list-everything answer, which is what someone
+                                # who named no product actually wants.
+                                search_term = phrase
                             break
                     from sqlalchemy import or_
                     search_words = [
@@ -1328,6 +1338,17 @@ class RAGService:
                     for phrase in NAVIGATION_KEYWORDS:
                         if phrase in msg_lower:
                             search_term = msg_lower.split(phrase, 1)[1].strip().rstrip(".!?' ")
+                            if not search_term:
+                                # The phrase was the last thing said — "send me
+                                # the website", "how can i buy". An empty term
+                                # makes the LIKE below match every row and hand
+                                # back whichever product happens to be first,
+                                # so search for the phrase itself instead:
+                                # "website" finds the home page, and a bare
+                                # "buy" finds nothing and falls through to the
+                                # list-everything answer, which is what someone
+                                # who named no product actually wants.
+                                search_term = phrase
                             break
                     from sqlalchemy import or_
                     search_words = [

@@ -55,7 +55,12 @@ class Settings(BaseSettings):
     # Chunk settings
     chunk_size: int = 512
     chunk_overlap: int = 64
-    default_top_k: int = 10
+    # Recall is vector-only — the hybrid retriever's BM25 half only reorders
+    # what the embedder already found, so anything missed here is missed for
+    # good. Short queries ("what is the price") were failing to surface their
+    # obvious answer within 10, then tripping the clarification threshold; the
+    # cross-encoder still trims to the best 3 before the LLM sees anything.
+    default_top_k: int = 20
     clarification_threshold: float = 0.25
     default_language: str = "en"
 
