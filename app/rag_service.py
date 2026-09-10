@@ -293,17 +293,6 @@ class RAGService:
             just_clarified = True
             state_machine.reset(db, ctx)
             ctx = state_machine.get_context(db, conv.id)
-        elif len(user_message.split()) <= 4:
-            # A short reply mid-conversation is a follow-up about what was just
-            # discussed — "shahi gulab", "the second one", "and internationally?".
-            # Retrieval only ever sees the current message, so alone it reads as
-            # a brand new question and pulls the wrong chunks: the bot would
-            # quote a price and then, asked "shahi gulab", claim not to know it.
-            # Same trick the clarification branch above uses, for the far more
-            # common case where we answered rather than asked.
-            prev_user_msg = next((m.content for m in recent_msgs if m.role == "user"), "")
-            if prev_user_msg:
-                user_message = f"{prev_user_msg} {user_message}"
 
         # 5. Vector retrieval
         sources: list[str] = []
@@ -1310,17 +1299,6 @@ class RAGService:
             just_clarified = True
             state_machine.reset(db, ctx)
             ctx = state_machine.get_context(db, conv.id)
-        elif len(user_message.split()) <= 4:
-            # A short reply mid-conversation is a follow-up about what was just
-            # discussed — "shahi gulab", "the second one", "and internationally?".
-            # Retrieval only ever sees the current message, so alone it reads as
-            # a brand new question and pulls the wrong chunks: the bot would
-            # quote a price and then, asked "shahi gulab", claim not to know it.
-            # Same trick the clarification branch above uses, for the far more
-            # common case where we answered rather than asked.
-            prev_user_msg = next((m.content for m in recent_msgs if m.role == "user"), "")
-            if prev_user_msg:
-                user_message = f"{prev_user_msg} {user_message}"
 
         sources: list[str] = []
         citations_list: list[dict] = []
