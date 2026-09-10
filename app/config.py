@@ -61,7 +61,13 @@ class Settings(BaseSettings):
     # obvious answer within 10, then tripping the clarification threshold; the
     # cross-encoder still trims to the best 3 before the LLM sees anything.
     default_top_k: int = 20
-    clarification_threshold: float = 0.25
+    # Below this reranker score the bot asks a clarifying question instead of
+    # answering. At 0.25 it was refusing to answer short but perfectly clear
+    # questions — "what is the price" clarified while "what is the price of a
+    # bar" answered from the same chunk. Halved so those land first time; the
+    # bot still asks at most one clarifying question (see just_clarified), and
+    # the system prompt still tells it to admit when the context falls short.
+    clarification_threshold: float = 0.12
     default_language: str = "en"
 
     # Crawler limits

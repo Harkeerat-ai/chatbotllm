@@ -112,11 +112,19 @@ class RAGService:
         # start time for latency measurements when returning early
         t0 = time.monotonic()
         product_urls: list[dict] = []
+        # The cache is keyed on message text alone, so a reply that only makes
+        # sense against this conversation — "yes", "the second one", "shahi
+        # gulab" — would otherwise be served an answer computed for somebody
+        # else's conversation entirely. Short messages are overwhelmingly those
+        # follow-ups, so they bypass the cache in both directions; the standalone
+        # questions the cache actually exists for are longer than this.
+        _cacheable = len(user_message.split()) > 4
         _key = _cache_key(brand.slug, user_message)
-        with _resp_lock:
-            _cached = _resp_cache.get(_key)
-        if _cached:
-            return _cached
+        if _cacheable:
+            with _resp_lock:
+                _cached = _resp_cache.get(_key)
+            if _cached:
+                return _cached
         conv = conversation_repo.save_conversation(db, brand.id, session_id)
 
         # 2. Load recent memory (last 6 turns)
@@ -577,8 +585,9 @@ class RAGService:
             "urls": product_urls,
             "latency_ms": latency_ms,
         }
-        with _resp_lock:
-            _resp_cache[_key] = _result
+        if _cacheable and not just_clarified:
+            with _resp_lock:
+                _resp_cache[_key] = _result
         return _result
 
     def _safe_extract_lookup(self, message: str) -> tuple[str, str, int]:
@@ -1159,12 +1168,17 @@ class RAGService:
         allow_unverified_tracking: bool = False,
         language: str = "",
     ) -> AsyncGenerator[str, None]:
+        # See the matching comment in ask(): short messages are follow-ups that
+        # only make sense against this conversation, and the cache key doesn't
+        # know about conversations.
+        _cacheable = len(user_message.split()) > 4
         _key = _cache_key(brand.slug, user_message)
-        with _resp_lock:
-            _cached = _resp_cache.get(_key)
-        if _cached:
-            yield f"data: {json.dumps(_cached)}\n\n"
-            return
+        if _cacheable:
+            with _resp_lock:
+                _cached = _resp_cache.get(_key)
+            if _cached:
+                yield f"data: {json.dumps(_cached)}\n\n"
+                return
         if top_k is None:
             top_k = settings.default_top_k
         t0 = time.monotonic()
@@ -1496,8 +1510,9 @@ class RAGService:
                 "citations": citations_list,
                 "urls": product_urls, "latency_ms": latency_ms,
             }
-            with _resp_lock:
-                _resp_cache[_key] = result
+            if _cacheable and not just_clarified:
+                with _resp_lock:
+                    _resp_cache[_key] = result
             yield f"data: {json.dumps(result)}\n\n"
         except Exception as e:
             logger.exception("LLM stream failed — %s", e)

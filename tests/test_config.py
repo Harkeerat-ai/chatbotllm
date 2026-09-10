@@ -34,7 +34,7 @@ def test_defaults(monkeypatch):
     assert s.chunk_size == 512
     assert s.chunk_overlap == 64
     assert s.default_top_k == 20
-    assert s.clarification_threshold == 0.25
+    assert s.clarification_threshold == 0.12
     assert s.default_language == "en"
     assert s.crawler_max_pages == 50
     assert s.crawler_timeout == 10
