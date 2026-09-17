@@ -1186,11 +1186,55 @@ def widget_js():
   window.addEventListener("message", function (e) {
     if (e.origin !== origin || !e.data || e.data.source !== "kalp-widget") return;
     isOpen = !!e.data.open;
+    if (isOpen) helpDismissed = true;
     applyLayout();
+    placeHelp();
   });
 
+  // "Ask me for help" pointer above the closed launcher. It lives on the host
+  // page, not in the iframe — the closed iframe is only the button's size.
+  // The launcher is 56px, 12px inside the iframe's corner (see #rag-widget in
+  // widget.html), so its centre sits 12 + 28 + margin from the page corner.
+  // Once the chat has been opened, the pointer has done its job and stays gone.
+  var helpDismissed = false;
+  var accent = d.accent || "#f0a500";
+  var helpStyle = document.createElement("style");
+  helpStyle.textContent =
+    "@keyframes kalpHelpBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}" +
+    "#kalp-help{position:fixed;z-index:9999;display:none;padding:7px 12px;border-radius:10px;" +
+    "background:" + accent + ";color:#000;font:600 13px/1.2 system-ui,-apple-system,'Segoe UI',sans-serif;" +
+    "white-space:nowrap;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.25);animation:kalpHelpBob 2.4s ease-in-out infinite}" +
+    "#kalp-help span{position:absolute;bottom:-5px;width:10px;height:10px;background:" + accent + ";transform:rotate(45deg)}";
+  var help = document.createElement("div");
+  help.id = "kalp-help";
+  help.setAttribute("role", "button");
+  help.textContent = d.helpText || "Ask me for help";
+  var helpArrow = document.createElement("span");
+  help.appendChild(helpArrow);
+  help.addEventListener("click", function () {
+    try { iframe.contentWindow.postMessage({ source: "kalp-host", open: true }, origin); } catch (e) {}
+  });
+
+  function placeHelp() {
+    if (isOpen || helpDismissed) { help.style.display = "none"; return; }
+    var margin = window.innerWidth <= MOBILE_BREAKPOINT ? 16 : 2;
+    var centre = margin + 12 + 28;
+    var edge = margin + 8;
+    help.style.display = "block";
+    help.style[v === "bottom" ? "bottom" : "top"] = (margin + 12 + 56 + 10) + "px";
+    help.style[hz === "right" ? "right" : "left"] = edge + "px";
+    helpArrow.style[hz === "right" ? "right" : "left"] = (centre - edge - 5) + "px";
+    if (v !== "bottom") { helpArrow.style.bottom = "auto"; helpArrow.style.top = "-5px"; }
+  }
+  window.addEventListener("resize", placeHelp);
+
   // Guard against the script running in <head> before <body> exists.
-  function mount() { document.body.appendChild(iframe); }
+  function mount() {
+    document.body.appendChild(iframe);
+    document.head.appendChild(helpStyle);
+    document.body.appendChild(help);
+    placeHelp();
+  }
   if (document.body) mount();
   else document.addEventListener("DOMContentLoaded", mount);
 })();

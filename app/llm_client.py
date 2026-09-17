@@ -60,7 +60,7 @@ class LLMClient:
             full_system = (
                 f"{system_prompt}\n\n"
                 "Use the following context to answer. "
-                "If the answer is not in the context, say you don't know.\n\n"
+                "If the answer to the latest question is not in the context, say so.\n\n"
                 f"Context:\n{context}"
             )
         else:

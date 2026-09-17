@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import hashlib
 import threading
@@ -84,6 +85,47 @@ TRACKING_BYPASS_KEYWORDS = sorted(
     key=len,
     reverse=True,
 )
+
+
+# "How do I order?" is answered by the LLM from the FAQ, but the answer is only
+# half useful without somewhere to click — so it also carries a link per flavour.
+ORDER_HOWTO_PHRASES = (
+    "how to order", "how do i order", "how can i order", "how would i order",
+    "how to place", "how do i place", "how can i place", "place an order",
+    "place order", "want to order", "order online", "ordering process",
+)
+
+# The LLM sometimes opens with a remark about an earlier question it already
+# answered — "I don't know how to order, but to return a product..." — so
+# strip that lead-in and keep only the answer to what was actually asked.
+_DONT_KNOW_LEADIN = re.compile(
+    r"^\s*I (?:don't|do not|don’t) know[^.!?]*?,\s*but\s+", re.IGNORECASE,
+)
+
+
+def _strip_dont_know_leadin(answer: str) -> str:
+    stripped = _DONT_KNOW_LEADIN.sub("", answer, count=1)
+    if stripped == answer or not stripped:
+        return answer
+    return stripped[0].upper() + stripped[1:]
+
+
+def _flavour_pages(pages: list) -> list:
+    """Product pages only — the home page is a destination for "take me to the
+    website", not a flavour, so it never belongs in a list of flavours."""
+    return [
+        p for p in pages
+        if p.title and "/product/" in (p.url or "")
+    ]
+
+
+def _flavour_urls(db: Session, brand: models.Brand) -> list[dict]:
+    try:
+        pages = db.query(ProductPage).filter(ProductPage.brand_id == brand.id).all()
+        return [{"title": p.title, "url": p.url} for p in _flavour_pages(pages)]
+    except Exception:
+        logger.debug("Flavour page lookup failed", exc_info=True)
+        return []
 
 
 def _get_reranker() -> CrossEncoderONNX:
@@ -467,7 +509,8 @@ class RAGService:
                                 "sources": [],
                             }
 
-                    titles = [p.title for p in all_pages if p.title]
+                    flavour_pages = _flavour_pages(all_pages)
+                    titles = [p.title for p in flavour_pages]
                     answer = get_text("rag.nav_not_found_list", _lang).format(
                         search_term=search_term, titles=", ".join(titles),
                     )
@@ -476,7 +519,7 @@ class RAGService:
                         "answer": answer,
                         "session_id": session_id,
                         "latency_ms": elapsed_ms,
-                        "urls": [{"title": p.title, "url": p.url} for p in all_pages if p.title],
+                        "urls": [{"title": p.title, "url": p.url} for p in flavour_pages],
                         "brand": brand.slug,
                         "sources": [],
                     }
@@ -560,6 +603,9 @@ class RAGService:
             system_prompt += f" Respond in {_lang}."
         t_llm_start = time.monotonic()
         answer, latency_ms = await llm.chat(system_prompt, llm_messages, context)
+        answer = _strip_dont_know_leadin(answer)
+        if any(ph in user_message.lower() for ph in ORDER_HOWTO_PHRASES):
+            product_urls = _flavour_urls(db, brand)
         t_llm = time.monotonic() - t_llm_start
         logger.info("Timing: llm=%.2fs (ollama latency=%dms)", t_llm, latency_ms)
 
@@ -1463,12 +1509,13 @@ class RAGService:
                             yield f"data: {json.dumps({'answer': answer, 'session_id': session_id, 'latency_ms': elapsed_ms, 'urls': [{'title': matched_page.title, 'url': matched_page.url}], 'brand': brand.slug, 'sources': [], 'citations': []})}\n\n"
                             return
 
-                    titles = [p.title for p in all_pages if p.title]
+                    flavour_pages = _flavour_pages(all_pages)
+                    titles = [p.title for p in flavour_pages]
                     answer = get_text("rag.nav_not_found_list", _lang).format(
                         search_term=search_term, titles=", ".join(titles),
                     )
                     elapsed_ms = int((time.monotonic() - t0) * 1000)
-                    yield f"data: {json.dumps({'answer': answer, 'session_id': session_id, 'latency_ms': elapsed_ms, 'urls': [{'title': p.title, 'url': p.url} for p in all_pages if p.title], 'brand': brand.slug, 'sources': [], 'citations': []})}\n\n"
+                    yield f"data: {json.dumps({'answer': answer, 'session_id': session_id, 'latency_ms': elapsed_ms, 'urls': [{'title': p.title, 'url': p.url} for p in flavour_pages], 'brand': brand.slug, 'sources': [], 'citations': []})}\n\n"
                     return
                 except Exception:
                     logger.debug("Product page lookup failed", exc_info=True)
@@ -1511,7 +1558,9 @@ class RAGService:
                     answer_parts.append(chunk)
                     yield f"data: {json.dumps({'token': chunk})}\n\n"
 
-            answer = "".join(answer_parts)
+            answer = _strip_dont_know_leadin("".join(answer_parts))
+            if any(ph in user_message.lower() for ph in ORDER_HOWTO_PHRASES):
+                product_urls = _flavour_urls(db, brand)
             latency_ms = int((time.monotonic() - t0) * 1000)
 
             asst_msg = models.Message(

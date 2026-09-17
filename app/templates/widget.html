@@ -215,13 +215,6 @@ var W_SEND = "{{ send }}";
               } else {
                 addMsg("bot", d.answer);
               }
-              if (d.sources && d.sources.length) {
-                var s = document.createElement("div");
-                s.className = "src";
-                s.textContent = W_SOURCES + d.sources.join(", ");
-                var lastBot = msgId.querySelector(".msg.bot:last-child");
-                if (lastBot) lastBot.appendChild(s);
-              }
               if (d.urls && d.urls.length) {
                 var links = document.createElement("div");
                 links.className = "page-links";
@@ -284,6 +277,11 @@ var W_SEND = "{{ send }}";
 
   document.getElementById("toggle-btn").addEventListener("click", function() { toggleWidget(true); });
   toggleWidget(false); // tell the parent our (closed) starting size immediately
+  // The "Ask me for help" pointer lives on the host page (see widget.js) and
+  // asks us to open when clicked.
+  window.addEventListener("message", function(e) {
+    if (e.source === parent && e.data && e.data.source === "kalp-host" && e.data.open) toggleWidget(true);
+  });
   document.getElementById("minimize-btn").addEventListener("click", function() { toggleWidget(false); });
   document.getElementById("send").addEventListener("click", send);
   document.getElementById("input").addEventListener("keydown", function(e) { if (e.key === "Enter") send(); });
