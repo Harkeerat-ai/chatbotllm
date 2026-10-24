@@ -17,7 +17,7 @@ from app import models
 from app.models import ProductPage
 from app.chroma_client import get_collection
 from app.cross_encoder_onnx import CrossEncoderONNX
-from app.prompts import get_prompt
+from app.prompts import get_prompt, brand_rules
 from app.translations import get_text
 
 # Module-level response cache — keyed by (brand, user_message, history_hash)
@@ -599,6 +599,7 @@ class RAGService:
         # 7. Generate answer
         _lang = _resolve_language(brand, language)
         system_prompt = get_prompt("system", _lang).format(brand_name=brand.name)
+        system_prompt += brand_rules(brand.slug)
         if _lang != "en":
             system_prompt += f" Respond in {_lang}."
         t_llm_start = time.monotonic()
@@ -1541,6 +1542,7 @@ class RAGService:
         llm_messages = history + [{"role": "user", "content": user_message}]
         _lang = _resolve_language(brand, language)
         system_prompt = get_prompt("system", _lang).format(brand_name=brand.name)
+        system_prompt += brand_rules(brand.slug)
         if _lang != "en":
             system_prompt += f" Respond in {_lang}."
 

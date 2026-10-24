@@ -313,3 +313,20 @@ WIDGET_LABELS: dict[str, dict[str, str]] = {
 
 def get_widget_labels(language: str) -> dict[str, str]:
     return WIDGET_LABELS.get(language, WIDGET_LABELS["en"])
+
+
+# Extra per-brand rules appended to the system prompt (keyed by brand slug).
+BRAND_RULES: dict[str, str] = {
+    "pranada": (
+        " Pranada is a pharmaceutical company. Describe the company, its product "
+        "segments and contact details only from the context. Never give medical "
+        "advice, diagnoses, dosages or treatment recommendations, and never say a "
+        "product will cure or treat a condition. For any health question, tell the "
+        "customer to consult a doctor or pharmacist, and share Pranada's contact "
+        "details for product enquiries."
+    ),
+}
+
+
+def brand_rules(slug: str) -> str:
+    return BRAND_RULES.get(slug, "")

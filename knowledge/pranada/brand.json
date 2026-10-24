@@ -1,0 +1,26 @@
+{
+  "name": "Pranada Biopharma",
+  "description": "Pranada Biopharma - pharmaceutical company. WordPress site at pranadabiopharma.com.",
+  "widget": {
+    "title": "Pranada Assistant",
+    "welcome_message": "Hello! I can help with information about Pranada Biopharma, our product segments and how to contact us. I can't give medical advice.",
+    "input_placeholder": "Ask about Pranada...",
+    "logo_url": "https://pranadabiopharma.com/wp-content/uploads/2024/06/pranada-logo-90x120-1.png",
+    "accent_color": "#0b6e99",
+    "accent_text_color": "#ffffff",
+    "bg_color": "#ffffff",
+    "surface_color": "#f5f9fc",
+    "border_color": "#d6e4ee",
+    "text_color": "#12263a",
+    "text_dim_color": "#5d7388",
+    "user_bg_color": "#e3f1f9",
+    "bot_bg_color": "#f5f9fc",
+    "font_family": "'Inter', sans-serif",
+    "font_import_url": "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap",
+    "radius": "10px",
+    "shadow_color": "rgba(11,110,153,.20)",
+    "position": "bottom-right",
+    "width": "380px",
+    "height": "580px"
+  }
+}

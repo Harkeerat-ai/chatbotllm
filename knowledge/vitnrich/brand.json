@@ -1,0 +1,26 @@
+{
+  "name": "VitnRich",
+  "description": "VitnRich - no-added-sugar cocoa bars, almond nutties and chocolates. Shopify store at vitnrich.com.",
+  "widget": {
+    "title": "VitnRich Assistant",
+    "welcome_message": "Hi! Ask me about our no-added-sugar cocoa bars, combos, shipping or offers.",
+    "input_placeholder": "Ask about our chocolates...",
+    "logo_url": "https://vitnrich.com/cdn/shop/t/21/assets/logo.png",
+    "accent_color": "#b99d3b",
+    "accent_text_color": "#2b1b0e",
+    "bg_color": "#fbf6ea",
+    "surface_color": "#fffdf7",
+    "border_color": "#e6dcc0",
+    "text_color": "#2b2118",
+    "text_dim_color": "#8a7a5c",
+    "user_bg_color": "#f1e7c8",
+    "bot_bg_color": "#ffffff",
+    "font_family": "'Poppins', sans-serif",
+    "font_import_url": "https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap",
+    "radius": "24px",
+    "shadow_color": "rgba(90,70,20,.25)",
+    "position": "bottom-right",
+    "width": "400px",
+    "height": "600px"
+  }
+}

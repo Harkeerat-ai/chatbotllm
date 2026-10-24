@@ -1062,6 +1062,9 @@ def widget(brand_slug: str, db: Session = Depends(get_db)):
     def _safe_css(val: str, default: str) -> str:
         return val if val and _SAFE_CSS_RE.match(val) else default
 
+    def _safe_font(val: str) -> str:
+        return val if re.fullmatch(r"[A-Za-z0-9 ,'\-]+", val or "") else "sans-serif"
+
     html_content = _jinja_env.get_template("widget.html").render(
         brand=brand_slug,
         language=brand_language,
@@ -1074,6 +1077,11 @@ def widget(brand_slug: str, db: Session = Depends(get_db)):
         text_dim_color=_safe_css(cfg.text_dim_color, "#888"),
         user_bg_color=_safe_css(cfg.user_bg_color, "#1e1e1e"),
         bot_bg_color=_safe_css(cfg.bot_bg_color, "#111"),
+        accent_text_color=_safe_css(cfg.accent_text_color, "#000"),
+        font_family=Markup(_safe_font(cfg.font_family)),
+        font_import_url=Markup(cfg.font_import_url if re.fullmatch(r"https://fonts\.googleapis\.com/[A-Za-z0-9=:;,.+&@?/_-]+", cfg.font_import_url or "") else WidgetConfig().font_import_url),
+        radius=_safe_css(cfg.radius, "16px"),
+        shadow_color=_safe_css(cfg.shadow_color, "rgba(0,0,0,.7)"),
         width=cfg.width,
         height=cfg.height,
         logo_html=Markup(logo_html),

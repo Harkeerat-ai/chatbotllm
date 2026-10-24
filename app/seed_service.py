@@ -32,6 +32,7 @@ def seed_knowledge(db: Session) -> None:
 
         slug = brand_dir.name
         brand = brand_service.get_or_create(db, slug)
+        _apply_brand_profile(db, brand, brand_dir / "brand.json")
 
         for fpath in sorted(brand_dir.iterdir()):
             suffix = fpath.suffix.lower()
@@ -92,3 +93,23 @@ def seed_knowledge(db: Session) -> None:
                 logger.exception("Failed to ingest %s for brand '%s'", fpath.name, slug)
 
     logger.info("Seed complete.")
+
+
+def _apply_brand_profile(db: Session, brand, path: Path) -> None:
+    """Apply knowledge/<slug>/brand.json (name, description, widget look) once.
+
+    Only fills in what is still unset, so edits made later in the admin panel
+    are never overwritten by a redeploy.
+    """
+    if not path.exists():
+        return
+    try:
+        profile = json.loads(path.read_text(encoding="utf-8"))
+        if not brand.description:
+            brand.name = profile.get("name", brand.name)
+            brand.description = profile.get("description", "")
+        if profile.get("widget") and brand.widget_config_json in (None, "", "{}"):
+            brand.widget_config_json = json.dumps(profile["widget"])
+        db.commit()
+    except Exception:
+        logger.exception("Failed to apply %s", path)
