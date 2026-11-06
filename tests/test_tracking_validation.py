@@ -90,6 +90,14 @@ class TestExtractLookupValue:
         value, lt, conf = tracking_service.extract_lookup_value_with_type("my tracking is TRK-BIO-1001")
         assert "TRK-BIO-1001" in value or value == "TRK-BIO-1001"
 
+    @pytest.mark.parametrize("message", [
+        "Do you have sugar-free chocolates? What do they cost?",
+        "Is the anti-dandruff pack free?",
+    ])
+    def test_hyphenated_words_are_not_order_ids(self, message):
+        value, lt, conf = tracking_service.extract_lookup_value_with_type(message)
+        assert value == ""
+
 
 class TestVerificationValidation:
 

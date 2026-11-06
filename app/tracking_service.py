@@ -82,7 +82,7 @@ HUB_STATUSES = {"at_origin_hub", "at_intermediate_hub", "at_destination_hub"}
 class TrackingService:
     lookup_pattern = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,95}$")
     lookup_token_pattern = re.compile(
-        r"\b(?:TRK[-_]?[A-Z0-9-]{3,}|[A-Z]{2,8}[-_][A-Z0-9-]{3,}|\d{6,})\b",
+        r"\b(?:TRK[-_]?[A-Z0-9-]{3,}|[A-Z]{2,8}[-_](?=[A-Z0-9-]*\d)[A-Z0-9-]{3,}|\d{6,})\b",
         re.IGNORECASE,
     )
     tracking_intent_patterns = (
