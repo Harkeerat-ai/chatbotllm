@@ -1238,11 +1238,48 @@ def widget_js():
   }
   window.addEventListener("resize", placeHelp);
 
+  // Sister-brand links, bottom-left: each brand's site links to the other two.
+  // Logos are served from /static/logos/. VitnRich's is a wide wordmark, so its
+  // link is a pill; the others are circles.
+  var SITES = {
+    kalp: { url: "https://kalp-shop.in", name: "Kalp" },
+    vitnrich: { url: "https://vitnrich.com", name: "VitnRich" },
+    pranada: { url: "https://pranadabiopharma.in", name: "Pranada" }
+  };
+  var links = null;
+  if (SITES[brand]) {
+    links = document.createElement("div");
+    links.id = "kalp-sister-links";
+    links.style.cssText = "position:fixed;left:16px;bottom:16px;z-index:9998;display:flex;flex-direction:column;align-items:flex-start;gap:10px;";
+    Object.keys(SITES).forEach(function (slug) {
+      if (slug === brand) return;
+      var site = SITES[slug], wide = slug === "vitnrich";
+      var a = document.createElement("a");
+      a.href = site.url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.title = "Visit " + site.name;
+      a.setAttribute("aria-label", "Visit " + site.name + " (opens in a new tab)");
+      a.style.cssText = "display:flex;align-items:center;justify-content:center;height:48px;" +
+        (wide ? "width:112px;border-radius:24px;" : "width:48px;border-radius:50%;") +
+        "background:#fff;box-shadow:0 3px 12px rgba(0,0,0,.22);overflow:hidden;transition:transform .2s;";
+      a.onmouseenter = function () { a.style.transform = "scale(1.08)"; };
+      a.onmouseleave = function () { a.style.transform = ""; };
+      var img = document.createElement("img");
+      img.src = origin + "/static/logos/" + slug + ".png";
+      img.alt = "";
+      img.style.cssText = wide ? "width:94px;height:auto;display:block;" : "width:" + (slug === "pranada" ? 46 : 38) + "px;height:auto;display:block;";
+      a.appendChild(img);
+      links.appendChild(a);
+    });
+  }
+
   // Guard against the script running in <head> before <body> exists.
   function mount() {
     document.body.appendChild(iframe);
     document.head.appendChild(helpStyle);
     document.body.appendChild(help);
+    if (links) document.body.appendChild(links);
     placeHelp();
   }
   if (document.body) mount();
