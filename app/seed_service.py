@@ -96,10 +96,11 @@ def seed_knowledge(db: Session) -> None:
 
 
 def _apply_brand_profile(db: Session, brand, path: Path) -> None:
-    """Apply knowledge/<slug>/brand.json (name, description, widget look) once.
+    """Apply knowledge/<slug>/brand.json.
 
-    Only fills in what is still unset, so edits made later in the admin panel
-    are never overwritten by a redeploy.
+    Name/description are set once (the admin panel can edit those). The widget
+    look has no admin UI, so brand.json is where it is edited: its keys are
+    merged over the stored config on every boot.
     """
     if not path.exists():
         return
@@ -108,8 +109,9 @@ def _apply_brand_profile(db: Session, brand, path: Path) -> None:
         if not brand.description:
             brand.name = profile.get("name", brand.name)
             brand.description = profile.get("description", "")
-        if profile.get("widget") and brand.widget_config_json in (None, "", "{}"):
-            brand.widget_config_json = json.dumps(profile["widget"])
+        if profile.get("widget"):
+            current = json.loads(brand.widget_config_json or "{}")
+            brand.widget_config_json = json.dumps({**current, **profile["widget"]})
         db.commit()
     except Exception:
         logger.exception("Failed to apply %s", path)

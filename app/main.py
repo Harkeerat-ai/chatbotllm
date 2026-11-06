@@ -1033,21 +1033,26 @@ def update_widget_config(brand_slug: str, cfg: WidgetConfig, request: Request, d
 def widget(brand_slug: str, db: Session = Depends(get_db)):
     brand = _get_brand(brand_slug, db)
     cfg = brand_service.get_widget_config(db, brand_slug)
-    safe_logo_url = html.escape(cfg.logo_url or "")
-    if cfg.logo_url:
-        logo_html = f'<img src="{safe_logo_url}" alt="Logo" style="height:24px;border-radius:4px;">'
+    # The widget CSP only allows img-src 'self', so an external logo_url is
+    # blocked; prefer our own copy in static/logos/ when there is one.
+    logo_url = cfg.logo_url
+    if logo_url and (STATIC_DIR / "logos" / f"{brand_slug}.png").is_file():
+        logo_url = f"/static/logos/{brand_slug}.png"
+    safe_logo_url = html.escape(logo_url or "")
+    if logo_url:
+        logo_html = f'<img src="{safe_logo_url}" alt="" style="height:28px;width:auto;display:block;">'
     else:
         logo_html = f'''<svg viewBox="0 0 24 24" width="24" height="24" fill="{cfg.accent_color}" style="display:block;">
   <ellipse cx="12" cy="12" rx="9" ry="10"/>
   <path d="M12 2c-3 0-6 3.5-6 10s3 10 6 10" fill="none" stroke="rgba(0,0,0,0.2)" stroke-width="1.5"/>
   <path d="M11.5 2v2.5" stroke="rgba(0,0,0,0.2)" stroke-width="1.2" stroke-linecap="round"/>
 </svg>'''
-    title_text = html.escape(cfg.title or brand_slug)
+    title_text = cfg.title or brand_slug
     from app.prompts import get_widget_labels, WIDGET_LABELS
     from app.translations import is_rtl, SUPPORTED_LANGUAGES
     brand_language = getattr(brand, "language", "en") or "en"
     labels = get_widget_labels(brand_language)
-    welcome = html.escape(cfg.welcome_message or labels.get("welcome", "Hello! How can I help you?"))
+    welcome = cfg.welcome_message or labels.get("welcome", "Hello! How can I help you?")
     direction = "rtl" if is_rtl(brand_language) else "ltr"
     # Embed all widget labels for all supported languages as JSON for client-side switching
     all_labels = {}
