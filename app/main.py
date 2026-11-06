@@ -1155,6 +1155,8 @@ def widget_js():
   // open/closed state (see toggleWidget there); we resize the iframe here
   // in response, closed being just the button's own footprint.
   var CLOSED_SIZE = "72px";
+  // VitnRich's launcher is a 152px pill (wide wordmark logo), see widget.html.
+  var CLOSED_W = brand === "vitnrich" ? "176px" : CLOSED_SIZE;
   var isOpen = false;
 
   function applyLayout() {
@@ -1167,7 +1169,7 @@ def widget_js():
       // once the full panel is open, so give it normal breathing room.
       margin = mobile ? "16px" : "20px";
     } else {
-      curW = CLOSED_SIZE;
+      curW = CLOSED_W;
       curH = CLOSED_SIZE;
       // Desktop margin is deliberately small while closed: Astra's own blue
       // "scroll to top" icon sits at bottom:30px/right:30px (~31.5x31.5px),
