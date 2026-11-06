@@ -1,11 +1,11 @@
 {
   "name": "Pranada Biopharma",
-  "description": "Pranada Biopharma - pharmaceutical company. WordPress site at pranadabiopharma.com.",
+  "description": "Pranada Biopharma - plant-based health supplements, hair care and pain relief. Shopify store at pranadabiopharma.in.",
   "widget": {
     "title": "Pranada Assistant",
-    "welcome_message": "Hello! I can help with information about Pranada Biopharma, our product segments and how to contact us. I can't give medical advice.",
-    "input_placeholder": "Ask about Pranada...",
-    "logo_url": "https://pranadabiopharma.com/wp-content/uploads/2024/06/pranada-logo-90x120-1.png",
+    "welcome_message": "Hello! Ask me about our products, prices, combos, shipping or returns. I can't give medical advice.",
+    "input_placeholder": "Ask about our products...",
+    "logo_url": "https://pranadabiopharma.in/cdn/shop/files/100x100-Pranada-logo.png?width=120",
     "accent_color": "#0b6e99",
     "accent_text_color": "#ffffff",
     "bg_color": "#ffffff",

@@ -318,8 +318,9 @@ def get_widget_labels(language: str) -> dict[str, str]:
 # Extra per-brand rules appended to the system prompt (keyed by brand slug).
 BRAND_RULES: dict[str, str] = {
     "pranada": (
-        " Pranada is a pharmaceutical company. Describe the company, its product "
-        "segments and contact details only from the context. Never give medical "
+        " Pranada sells plant-based health supplements, hair care and pain-relief "
+        "products at pranadabiopharma.in. Describe its products, prices, combos, "
+        "shipping, returns and contact details only from the context. Never give medical "
         "advice, diagnoses, dosages or treatment recommendations, and never say a "
         "product will cure or treat a condition. For any health question, tell the "
         "customer to consult a doctor or pharmacist, and share Pranada's contact "
