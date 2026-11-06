@@ -1250,7 +1250,8 @@ def widget_js():
   if (SITES[brand]) {
     links = document.createElement("div");
     links.id = "kalp-sister-links";
-    links.style.cssText = "position:fixed;left:16px;bottom:16px;z-index:9998;display:flex;flex-direction:column;align-items:flex-start;gap:10px;";
+    // kalp-shop.in has its own WhatsApp button at left/bottom 20px (56px), so stack above it.
+    links.style.cssText = "position:fixed;left:" + (brand === "kalp" ? "20px" : "16px") + ";bottom:" + (brand === "kalp" ? "88px" : "16px") + ";z-index:9998;display:flex;flex-direction:column;align-items:flex-start;gap:10px;";
     Object.keys(SITES).forEach(function (slug) {
       if (slug === brand) return;
       var site = SITES[slug], wide = slug === "vitnrich";
